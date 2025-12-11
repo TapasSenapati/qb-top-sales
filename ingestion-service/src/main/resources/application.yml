@@ -12,8 +12,15 @@ spring:
       hibernate:
         default_schema: ingestion
   flyway:
-    enabled: true
+    enabled: false
     schemas: ingestion,forecasting
     defaultSchema: ingestion
     locations: classpath:db/migration
-
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,info
+    endpoint:
+      health:
+        show-details: never

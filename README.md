@@ -2,6 +2,15 @@
 Qb craft project
 
 run docker file ```sudo docker compose up -d```
-Ensure Postgres Docker container is running.
-Start only ingestion-service and verify it starts on port 8081.
-Start top-sales-forecasting-service (which can stay on 8080).
+
+docker compose up -d ingestion-service
+
+to simulate a batch of orders:
+```docker compose up -d order-simulator```
+
+Ensure Postgres Docker container and other containers is running. ```sudo docker ps```
+sudo psql -h localhost -p 5432 -U qb_user -d qb_db
+Actuator health will be at:
+http://localhost:8081/actuator/health (locally)
+
+http://ingestion-service:8081/actuator/health

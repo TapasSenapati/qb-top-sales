@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS ingestion.order_events
     order_id     BIGINT      NOT NULL REFERENCES ingestion.orders (id),
     merchant_id  BIGINT      NOT NULL REFERENCES ingestion.merchants (id),
     event_type   TEXT        NOT NULL,
-    payload      JSONB       NOT NULL,
+    payload      TEXT       NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL,
     processed    BOOLEAN     NOT NULL DEFAULT FALSE,
     processed_at TIMESTAMPTZ NULL
