@@ -1,0 +1,19 @@
+server:
+  port: 8081
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/qb_db
+    username: qb_user
+    password: qb_password
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: ingestion
+  flyway:
+    enabled: true
+    schemas: ingestion,forecasting
+    defaultSchema: ingestion
+    locations: classpath:db/migration
+
