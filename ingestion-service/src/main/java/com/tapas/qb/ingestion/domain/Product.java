@@ -10,7 +10,14 @@ public class Product {
     private Long id;
 
     private Long merchantId;
+    @Column(name = "category_id", nullable = false)
     private Long categoryId;
     private String name;
-    // getters/setters
+    public Long getId() {
+        return id;
+    }
+
+    public Long getCategoryId() {
+        return categoryId;
+    }
 }

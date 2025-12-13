@@ -10,6 +10,11 @@ services:
       - "5432:5432"
     volumes:
       - qb-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U qb_user -d qb_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: apache/kafka:3.7.0
@@ -18,7 +23,7 @@ services:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://qb-kafka:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@qb-kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
@@ -31,7 +36,13 @@ services:
     image: ingestion-service:latest
     container_name: ingestion-service
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    healthcheck:
+        test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
+        interval: 10s
+        timeout: 3s
+        retries: 5
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/qb_db
       SPRING_DATASOURCE_USERNAME: qb_user
@@ -41,13 +52,17 @@ services:
 
   order-simulator:
     build:
-      context: ./order-simulator
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.order-simulator
     container_name: order-simulator
-    depends_on:
-      - ingestion-service
     environment:
       INGESTION_BASE_URL: http://ingestion-service:8081
-      ORDER_COUNT: "50"
+      ORDER_COUNT: 100
+      ORDER_DELAY_SECONDS: 1
+    depends_on:
+      ingestion-service:
+        condition: service_healthy
+    restart: "no"
+
 volumes:
   qb-postgres-data:
