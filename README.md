@@ -1,12 +1,16 @@
 # qb-top-sales
 Qb craft project
+```
+sudo docker compose down -v
+sudo docker builder prune -af
+sudo docker system prune -af
+sudo systemctl restart docker
+sudo docker ps -> verify empty
 
-run docker file ```sudo docker compose up -d```
-
-docker compose up -d ingestion-service
-
-to simulate a batch of orders:
-```docker compose up -d order-simulator```
+mvn clean package -DskipTests
+sudo docker compose build
+sudo docker compose up -d
+```
 
 Ensure Postgres Docker container and other containers is running. ```sudo docker ps```
 sudo psql -h localhost -p 5432 -U qb_user -d qb_db

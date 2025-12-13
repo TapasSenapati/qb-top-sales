@@ -10,6 +10,7 @@ services:
       - "5432:5432"
     volumes:
       - qb-postgres-data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U qb_user -d qb_db" ]
       interval: 10s
@@ -33,7 +34,9 @@ services:
       - "9092:9092"
 
   ingestion-service:
-    image: ingestion-service:latest
+    build:
+      context: ./ingestion-service
+      dockerfile: Dockerfile
     container_name: ingestion-service
     depends_on:
       postgres:
@@ -52,8 +55,8 @@ services:
 
   order-simulator:
     build:
-      context: .
-      dockerfile: Dockerfile.order-simulator
+      context: ./order-simulator
+      dockerfile: Dockerfile
     container_name: order-simulator
     environment:
       INGESTION_BASE_URL: http://ingestion-service:8081
