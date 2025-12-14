@@ -24,5 +24,28 @@ select count(*) from ingestion.order_events where processed = false;
 ```
 This number should go to zero over time if you stop live traffic. ```sudo docker stop order-simulator```
 
-### checkign any service logs:
+### checkingW any service logs:
 ```sudo docker logs -f forecasting-service```
+
+### verifying aggregations day
+```sql
+SELECT *
+FROM forecasting.category_sales_agg
+WHERE merchant_id = 1
+  AND category_id = 1
+  AND bucket_type = 'DAY';
+
+SELECT
+    SUM(oi.quantity)      AS units,
+    COUNT(*)              AS order_items,
+    SUM(oi.line_amount)   AS sales
+FROM ingestion.orders o
+         JOIN ingestion.order_items oi
+              ON oi.order_id = o.id
+         JOIN ingestion.products p
+              ON p.id = oi.product_id
+WHERE o.merchant_id = 1
+  AND p.category_id = 1
+  AND o.order_date >= TIMESTAMPTZ '2025-12-14 05:30:00+05:30'
+  AND o.order_date <  TIMESTAMPTZ '2025-12-15 05:30:00+05:30';
+```
