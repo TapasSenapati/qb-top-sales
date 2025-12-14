@@ -67,5 +67,27 @@ services:
         condition: service_healthy
     restart: "no"
 
+  forecasting-service:
+    build:
+      context: ./forecasting-service
+      dockerfile: Dockerfile
+    container_name: forecasting-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/qb_db
+      SPRING_DATASOURCE_USERNAME: qb_user
+      SPRING_DATASOURCE_PASSWORD: qb_password
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   qb-postgres-data:

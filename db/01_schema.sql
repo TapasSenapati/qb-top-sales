@@ -64,15 +64,25 @@ CREATE TABLE IF NOT EXISTS ingestion.order_events
 -- forecasting.category_sales_agg
 CREATE TABLE IF NOT EXISTS forecasting.category_sales_agg
 (
-    id           BIGSERIAL PRIMARY KEY,
-    merchant_id  BIGINT         NOT NULL,
-    category_id  BIGINT         NOT NULL,
-    bucket_start TIMESTAMPTZ    NOT NULL,
-    bucket_end   TIMESTAMPTZ    NOT NULL,
-    metric_type  TEXT           NOT NULL,
-    total_value  NUMERIC(18, 2) NOT NULL,
-    updated_at   TIMESTAMPTZ    NOT NULL
+    id                  BIGSERIAL PRIMARY KEY,
+    merchant_id         BIGINT       NOT NULL,
+    category_id         BIGINT       NOT NULL,
+    bucket_type         TEXT         NOT NULL, -- DAY | WEEK | MONTH
+    bucket_start        TIMESTAMPTZ  NOT NULL,
+    bucket_end          TIMESTAMPTZ  NOT NULL,
+    total_sales_amount  NUMERIC(18,2) NOT NULL DEFAULT 0,
+    total_units_sold    BIGINT        NOT NULL DEFAULT 0,
+    order_count         BIGINT        NOT NULL DEFAULT 0,
+    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uq_category_sales_bucket
+        UNIQUE (merchant_id, category_id, bucket_type, bucket_start)
 );
+
+CREATE INDEX IF NOT EXISTS idx_cat_sales_merchant_bucket
+    ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start);
+
+CREATE INDEX IF NOT EXISTS idx_cat_sales_top_amount
+    ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start, total_sales_amount DESC);
 
 -- Useful indexes
 CREATE INDEX IF NOT EXISTS idx_orders_merchant_date
@@ -82,4 +92,5 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order
     ON ingestion.order_items (order_id);
 
 CREATE INDEX IF NOT EXISTS idx_category_sales_agg_lookup
-    ON forecasting.category_sales_agg (merchant_id, bucket_start, bucket_end, metric_type);
+    ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start);
+

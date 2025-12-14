@@ -19,7 +19,7 @@
 
     <modules>
         <module>ingestion-service</module>
-        <module>top-sales-forecasting-service</module>
+        <module>forecasting-service</module>
     </modules>
 
     <properties>
@@ -28,10 +28,6 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

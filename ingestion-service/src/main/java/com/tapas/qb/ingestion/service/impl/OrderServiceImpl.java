@@ -71,7 +71,7 @@ public class OrderServiceImpl implements OrderService {
             orderItemRepository.save(item);
         }
 
-        // create outbox event payload (you can refine structure later)
+        // create outbox event payload
         List<OrderCreatedEventPayload.Item> payloadItems = new ArrayList<>();
 
         for (OrderItemRequest itemReq : request.items()) {

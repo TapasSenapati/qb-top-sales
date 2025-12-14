@@ -4,8 +4,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class TopSalesForecastingApplication {
+public class ForecastingServiceApplication {
+
     public static void main(String[] args) {
-        SpringApplication.run(TopSalesForecastingApplication.class, args);
+        SpringApplication.run(ForecastingServiceApplication.class, args);
     }
 }
