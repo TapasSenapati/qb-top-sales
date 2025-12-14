@@ -35,4 +35,56 @@ public interface CategorySalesAggRepository
             BigDecimal amount,
             Long quantity
     );
+
+    @Modifying
+    @Query(value = """
+    INSERT INTO forecasting.category_sales_agg
+    (merchant_id, category_id, bucket_type, bucket_start, bucket_end,
+     total_sales_amount, total_units_sold, order_count, updated_at)
+    VALUES
+    (:merchantId, :categoryId, 'WEEK', :bucketStart, :bucketEnd,
+     :amount, :quantity, 1, now())
+    ON CONFLICT (merchant_id, category_id, bucket_type, bucket_start)
+    DO UPDATE SET
+        total_sales_amount = category_sales_agg.total_sales_amount + EXCLUDED.total_sales_amount,
+        total_units_sold   = category_sales_agg.total_units_sold + EXCLUDED.total_units_sold,
+        order_count        = category_sales_agg.order_count + 1,
+        updated_at         = now()
+    """,
+            nativeQuery = true)
+    void upsertWeekAggregate(
+            Long merchantId,
+            Long categoryId,
+            Instant bucketStart,
+            Instant bucketEnd,
+            BigDecimal amount,
+            Long quantity
+    );
+
+    @Modifying
+    @Query(value = """
+    INSERT INTO forecasting.category_sales_agg
+    (merchant_id, category_id, bucket_type, bucket_start, bucket_end,
+     total_sales_amount, total_units_sold, order_count, updated_at)
+    VALUES
+    (:merchantId, :categoryId, 'MONTH', :bucketStart, :bucketEnd,
+     :amount, :quantity, 1, now())
+    ON CONFLICT (merchant_id, category_id, bucket_type, bucket_start)
+    DO UPDATE SET
+        total_sales_amount = category_sales_agg.total_sales_amount + EXCLUDED.total_sales_amount,
+        total_units_sold   = category_sales_agg.total_units_sold + EXCLUDED.total_units_sold,
+        order_count        = category_sales_agg.order_count + 1,
+        updated_at         = now()
+    """,
+            nativeQuery = true)
+    void upsertMonthAggregate(
+            Long merchantId,
+            Long categoryId,
+            Instant bucketStart,
+            Instant bucketEnd,
+            BigDecimal amount,
+            Long quantity
+    );
+
+
 }
