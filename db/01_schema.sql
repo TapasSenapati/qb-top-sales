@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS ingestion.order_events
     order_id     BIGINT      NOT NULL REFERENCES ingestion.orders (id),
     merchant_id  BIGINT      NOT NULL REFERENCES ingestion.merchants (id),
     event_type   TEXT        NOT NULL,
-    payload      TEXT       NOT NULL,
+    payload      TEXT,
     created_at   TIMESTAMPTZ NOT NULL,
     processed    BOOLEAN     NOT NULL DEFAULT FALSE,
     processed_at TIMESTAMPTZ NULL
@@ -64,16 +64,16 @@ CREATE TABLE IF NOT EXISTS ingestion.order_events
 -- forecasting.category_sales_agg
 CREATE TABLE IF NOT EXISTS forecasting.category_sales_agg
 (
-    id                  BIGSERIAL PRIMARY KEY,
-    merchant_id         BIGINT       NOT NULL,
-    category_id         BIGINT       NOT NULL,
-    bucket_type         TEXT         NOT NULL, -- DAY | WEEK | MONTH
-    bucket_start        TIMESTAMPTZ  NOT NULL,
-    bucket_end          TIMESTAMPTZ  NOT NULL,
-    total_sales_amount  NUMERIC(18,2) NOT NULL DEFAULT 0,
-    total_units_sold    BIGINT        NOT NULL DEFAULT 0,
-    order_count         BIGINT        NOT NULL DEFAULT 0,
-    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    id                 BIGSERIAL PRIMARY KEY,
+    merchant_id        BIGINT         NOT NULL,
+    category_id        BIGINT         NOT NULL,
+    bucket_type        TEXT           NOT NULL, -- DAY | WEEK | MONTH
+    bucket_start       TIMESTAMPTZ    NOT NULL,
+    bucket_end         TIMESTAMPTZ    NOT NULL,
+    total_sales_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+    total_units_sold   BIGINT         NOT NULL DEFAULT 0,
+    order_count        BIGINT         NOT NULL DEFAULT 0,
+    updated_at         TIMESTAMPTZ    NOT NULL DEFAULT now(),
     CONSTRAINT uq_category_sales_bucket
         UNIQUE (merchant_id, category_id, bucket_type, bucket_start)
 );
@@ -93,4 +93,10 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order
 
 CREATE INDEX IF NOT EXISTS idx_category_sales_agg_lookup
     ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start);
+
+CREATE TABLE IF NOT EXISTS forecasting.processed_events
+(
+    event_id     BIGINT PRIMARY KEY,
+    processed_at TIMESTAMPTZ NOT NULL
+);
 

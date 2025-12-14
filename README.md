@@ -91,5 +91,16 @@ WHERE merchant_id = 1
   AND category_id = 1
   AND bucket_type = 'DAY'
   AND bucket_start >= TIMESTAMPTZ '2025-12-01 05:30:00+05:30'
-  AND bucket_start <  TIMESTAMPTZ '2026-01-01 05:30:00+05:30';                                                            
+  AND bucket_start <  TIMESTAMPTZ '2026-01-01 05:30:00+05:30';             
+
+---idempotency checks
+UPDATE ingestion.order_events SET processed = false;
+
+SELECT SUM(total_sales_amount)
+FROM forecasting.category_sales_agg;
+
+UPDATE ingestion.order_events SET processed = false;
+
+SELECT SUM(total_sales_amount)
+FROM forecasting.category_sales_agg;
 ```

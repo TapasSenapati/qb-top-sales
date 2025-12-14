@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 
 public record OrderEventPayload(
+        Long eventId,
         Long orderId,
         Long merchantId,
         Instant orderDate,

@@ -1,6 +1,7 @@
 package com.tapas.qb.ingestion.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tapas.qb.ingestion.api.dto.OrderCreateRequest;
 import com.tapas.qb.ingestion.api.dto.OrderCreateResponse;
 import com.tapas.qb.ingestion.api.dto.OrderItemRequest;
@@ -15,7 +16,6 @@ import com.tapas.qb.ingestion.repository.ProductRepository;
 import com.tapas.qb.ingestion.service.OrderService;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -28,14 +28,16 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final OrderEventRepository orderEventRepository;
-    private final ObjectMapper objectMapper;
     private final ProductRepository productRepository;
+    private final ObjectMapper objectMapper;
 
-    public OrderServiceImpl(OrderRepository orderRepository,
-                            OrderItemRepository orderItemRepository,
-                            OrderEventRepository orderEventRepository,
-                            ProductRepository productRepository,
-                            ObjectMapper objectMapper) {
+    public OrderServiceImpl(
+            OrderRepository orderRepository,
+            OrderItemRepository orderItemRepository,
+            OrderEventRepository orderEventRepository,
+            ProductRepository productRepository,
+            ObjectMapper objectMapper
+    ) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderEventRepository = orderEventRepository;
@@ -46,12 +48,12 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderCreateResponse createOrder(OrderCreateRequest request) {
-        // compute totals
+        // 1. Compute totals
         BigDecimal totalAmount = request.items().stream()
                 .map(i -> i.unitPrice().multiply(BigDecimal.valueOf(i.quantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // save order
+        // 2. Save order
         Order order = new Order();
         order.setMerchantId(request.merchantId());
         order.setOrderDate(request.orderDate());
@@ -59,25 +61,35 @@ public class OrderServiceImpl implements OrderService {
         order.setTotalAmount(totalAmount);
         order = orderRepository.save(order);
 
-        // save items
+        // 3. Save order items
         for (OrderItemRequest itemReq : request.items()) {
             OrderItem item = new OrderItem();
             item.setOrderId(order.getId());
             item.setProductId(itemReq.productId());
             item.setQuantity(itemReq.quantity());
             item.setUnitPrice(itemReq.unitPrice());
-            item.setLineAmount(itemReq.unitPrice()
-                    .multiply(BigDecimal.valueOf(itemReq.quantity())));
+            item.setLineAmount(
+                    itemReq.unitPrice().multiply(BigDecimal.valueOf(itemReq.quantity()))
+            );
             orderItemRepository.save(item);
         }
 
-        // create outbox event payload
-        List<OrderCreatedEventPayload.Item> payloadItems = new ArrayList<>();
+        // 4. Create OUTBOX ROW FIRST (NO PAYLOAD YET)
+        OrderEvent event = new OrderEvent();
+        event.setOrderId(order.getId());
+        event.setMerchantId(request.merchantId());
+        event.setEventType("ORDER_CREATED");
+        event.setCreatedAt(Instant.now());
+        event.setProcessed(false);
 
+        // First save — DB assigns event.id here
+        event = orderEventRepository.save(event);
+
+        // 5. Build payload ITEMS (after event.id exists)
+        List<OrderCreatedEventPayload.Item> payloadItems = new ArrayList<>();
         for (OrderItemRequest itemReq : request.items()) {
             Long categoryId =
                     productRepository.findCategoryIdByProductId(itemReq.productId());
-
             payloadItems.add(
                     new OrderCreatedEventPayload.Item(
                             itemReq.productId(),
@@ -90,8 +102,10 @@ public class OrderServiceImpl implements OrderService {
             );
         }
 
+        // 6. Build payload WITH eventId
         OrderCreatedEventPayload payload =
                 new OrderCreatedEventPayload(
+                        event.getId(),              // ✅ real outbox id
                         order.getId(),
                         request.merchantId(),
                         order.getOrderDate(),
@@ -99,22 +113,16 @@ public class OrderServiceImpl implements OrderService {
                         payloadItems
                 );
 
-        String payloadJson = null;
         try {
-            payloadJson = objectMapper.writeValueAsString(payload);
+            event.setPayload(objectMapper.writeValueAsString(payload));
         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to serialize OrderCreatedEventPayload", e);
         }
 
-        OrderEvent event = new OrderEvent();
-        event.setOrderId(order.getId());
-        event.setMerchantId(request.merchantId());
-        event.setEventType("ORDER_CREATED");
-        event.setPayload(payloadJson);
-        event.setCreatedAt(Instant.now());
-        event.setProcessed(false);
+        // 7. UPDATE SAME ROW with payload
         orderEventRepository.save(event);
 
+        // 8. Return response
         return new OrderCreateResponse(
                 order.getId(),
                 request.merchantId(),
@@ -124,4 +132,5 @@ public class OrderServiceImpl implements OrderService {
                 "CREATED"
         );
     }
+
 }

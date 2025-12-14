@@ -2,6 +2,8 @@ package com.tapas.qb.forecasting.service;
 
 import com.tapas.qb.forecasting.dto.OrderEventPayload;
 import com.tapas.qb.forecasting.repository.CategorySalesAggRepository;
+import com.tapas.qb.forecasting.repository.ProcessedEvent;
+import com.tapas.qb.forecasting.repository.ProcessedEventRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
@@ -14,20 +16,24 @@ import java.time.temporal.TemporalAdjusters;
 
 @Service
 public class CategorySalesAggregator {
+    private final CategorySalesAggRepository aggRepo;
+    private final ProcessedEventRepository processedRepo;
 
-    private final CategorySalesAggRepository repository;
-
-    public CategorySalesAggregator(CategorySalesAggRepository repository) {
-        this.repository = repository;
+    public CategorySalesAggregator(CategorySalesAggRepository aggRepo, ProcessedEventRepository processedRepo) {
+        this.aggRepo = aggRepo;
+        this.processedRepo = processedRepo;
     }
 
     @Transactional
     public void aggregate(OrderEventPayload event) {
 
-        Instant bucketStart = event.orderDate()
-                .truncatedTo(ChronoUnit.DAYS);
-
-        Instant bucketEnd = bucketStart.plus(1, ChronoUnit.DAYS);
+        // Try to claim the event
+        if (processedRepo.existsById(event.eventId())) {
+            return; // already processed → no-op
+        }
+        processedRepo.save(
+                new ProcessedEvent(event.eventId(), Instant.now())
+        );
 
         Instant dayStart = event.orderDate()
                 .truncatedTo(ChronoUnit.DAYS);
@@ -43,7 +49,7 @@ public class CategorySalesAggregator {
                 .toInstant();
 
         for (OrderEventPayload.Item item : event.items()) {
-            repository.upsertDayAggregate(
+            aggRepo.upsertDayAggregate(
                     event.merchantId(),
                     item.categoryId(),
                     dayStart,
@@ -51,7 +57,7 @@ public class CategorySalesAggregator {
                     item.lineAmount(),
                     (long) item.quantity()
             );
-            repository.upsertWeekAggregate(
+            aggRepo.upsertWeekAggregate(
                     event.merchantId(),
                     item.categoryId(),
                     weekStart,
@@ -59,7 +65,7 @@ public class CategorySalesAggregator {
                     item.lineAmount(),
                     (long) item.quantity()
             );
-            repository.upsertMonthAggregate(
+            aggRepo.upsertMonthAggregate(
                     event.merchantId(),
                     item.categoryId(),
                     monthStart,
