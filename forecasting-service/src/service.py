@@ -1,13 +1,17 @@
 from typing import List, Dict, Optional, Protocol
 from dataclasses import dataclass
 from datetime import datetime
-
+from fastapi import HTTPException
 import pandas as pd
+import logging
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 # Prophet is imported lazily inside forecasting to avoid import cost when not used.
-
-
 MIN_POINTS_FOR_PROPHET = 3
+# Feature flags
+ENABLE_PROPHET = False
 
 class ProphetNotAvailableError(Exception):
     pass
@@ -38,7 +42,6 @@ class TimeSeriesPoint:
     bucket_start: datetime
     value: float
 
-
 @dataclass
 class CategoryForecastResult:
     category_id: int
@@ -47,33 +50,33 @@ class CategoryForecastResult:
     model: str
     lookback: int
     confidence: str
-    
+
 # ----------------------------
 # Forecasting service
 # ----------------------------
+
 def compute_confidence(lookback: int) -> str:
     if lookback <= 1:
         return "LOW"
     if lookback <= 3:
         return "MEDIUM"
     return "HIGH"
-    
+
 class ForecastingService:
     """
     Stateless forecasting service.
-
     - Uses pre-aggregated time series
     - Strategy-based model selection (rolling, prophet, ...)
     """
-
     def __init__(self, default_lookback: int = 4):
         self.default_lookback = default_lookback
         # Registry of forecasting models
         self._models: Dict[str, ForecastModel] = {
             "rolling": RollingAverageModel(),
-            "prophet": ProphetModel(),
+            # "prophet": ProphetModel(),
         }
-
+        if ENABLE_PROPHET:
+            self._models["prophet"] = ProphetModel()
     # ---------- PUBLIC API ----------
 
     def forecast_categories(
@@ -87,48 +90,49 @@ class ForecastingService:
     ) -> List[CategoryForecastResult]:
         """
         Forecast next-period sales per category.
-
-        Parameters
-        ----------
-        category_series:
-            { category_id -> ordered time series }
-        model:
-            "rolling" | "prophet"
-        lookback:
-            number of past periods (rolling window)
-        limit:
-            top N categories by forecast value
         """
-
         lookback = lookback or self.default_lookback
         results: List[CategoryForecastResult] = []
 
         model_impl = self._models.get(model)
         if not model_impl:
-            raise ValueError(f"Unknown forecasting model: {model}")
+            available = ", ".join(self._models.keys())
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Forecasting model '{model}' is not available. "
+                    f"Available models: {available}"
+                )
+            )
 
         for category_id, series in category_series.items():
             category_name = category_names.get(category_id, str(category_id))
-
+            
             # Skip if not enough data in general
             if not series:
                 print(f"[forecasting] Skipping category {category_id}: empty series")
                 continue
 
-            forecast_value = model_impl.forecast(
-                series=series,
-                lookback=lookback,
-                bucket_type=bucket_type,
-                category_id=category_id,
-                category_name=category_name,
-            )
+            try:
+                forecast_value = model_impl.forecast(
+                    series=series,
+                    lookback=lookback,
+                    bucket_type=bucket_type,
+                    category_id=category_id,
+                    category_name=category_name,
+                )
+            except ProphetNotAvailableError as e:
+                # Re-raise to be handled by controller (400 Bad Request)
+                raise e
+            except Exception as e:
+                logger.error(f"Prediction failed for category {category_id}: {e}")
+                continue
 
             if forecast_value is None:
                 # Model decided to skip (e.g., insufficient history)
                 continue
 
             confidence = compute_confidence(lookback)
-
             results.append(
                 CategoryForecastResult(
                     category_id=category_id,
@@ -144,18 +148,17 @@ class ForecastingService:
         results.sort(key=lambda r: r.forecast_value, reverse=True)
         return results[:limit]
 
-    # ---------- MODEL IMPLEMENTATIONS ----------
+# ---------- MODEL IMPLEMENTATIONS ----------
 
-    @staticmethod
-    def _freq_for_bucket(bucket_type: str) -> str:
-        if bucket_type == "DAY":
-            return "D"
-        if bucket_type == "WEEK":
-            return "W"
-        if bucket_type == "MONTH":
-            return "MS"
+@staticmethod
+def _freq_for_bucket(bucket_type: str) -> str:
+    if bucket_type == "DAY":
         return "D"
-
+    if bucket_type == "WEEK":
+        return "W"
+    if bucket_type == "MONTH":
+        return "MS"
+    return "D"
 
 class RollingAverageModel:
     name = "rolling"
@@ -174,9 +177,9 @@ class RollingAverageModel:
                 f"only {len(series)} points, need {lookback}"
             )
             return None
+
         values = [p.value for p in series[-lookback:]]
         return sum(values) / lookback
-
 
 class ProphetModel:
     name = "prophet"
@@ -196,11 +199,6 @@ class ProphetModel:
             )
             return None
 
-        try:
-            from prophet import Prophet
-        except Exception as e:
-            raise ProphetNotAvailableError("Prophet model requested but not installed") from e
-
         # Map bucket_type to Prophet frequency
         if bucket_type == "DAY":
             freq = "D"
@@ -211,23 +209,28 @@ class ProphetModel:
         else:
             freq = "D"
 
-        df = pd.DataFrame(
-            {
+        try:
+            from prophet import Prophet
+            
+            df = pd.DataFrame({
                 "ds": [p.bucket_start for p in series],
                 "y": [p.value for p in series],
-            }
-        )
+            })
 
-        model = Prophet(
-            yearly_seasonality=False,
-            weekly_seasonality=False,
-            daily_seasonality=False,
-            random_state=42,
-        )
+            model = Prophet(
+                yearly_seasonality=False,
+                weekly_seasonality=False,
+                daily_seasonality=False
+            )
+            
+            model.fit(df)
+            future = model.make_future_dataframe(periods=1, freq=freq)
+            forecast = model.predict(future)
+            
+            return float(forecast.iloc[-1]["yhat"])
 
-        model.fit(df)
-
-        future = model.make_future_dataframe(periods=1, freq=freq)
-        forecast = model.predict(future)
-
-        return float(forecast.iloc[-1]["yhat"])
+        except ImportError:
+             raise ProphetNotAvailableError("Prophet library not installed.")
+        except Exception as e:
+            # Catch backend initialization errors (like stan_backend)
+            raise ProphetNotAvailableError(f"Prophet initialization failed: {str(e)}") from e
