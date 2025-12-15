@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 
 public record TopCategoryResponse(
         Long categoryId,
+        String categoryName,
         BigDecimal totalSalesAmount,
         Long totalUnitsSold,
         Long orderCount
@@ -13,6 +14,7 @@ public record TopCategoryResponse(
     public static TopCategoryResponse from(TopCategoryRow row) {
         return new TopCategoryResponse(
                 row.getCategoryId(),
+                row.getCategoryName(),
                 row.getTotalSalesAmount(),
                 row.getTotalUnitsSold(),
                 row.getOrderCount()

@@ -10,6 +10,7 @@ from .consul_registration import register_service, deregister_service
 
 class CategoryForecastResponse(BaseModel):
     category_id: int = Field(..., example=101)
+    category_name: str = Field(..., example="Beverages")
     forecast_value: float = Field(..., example=1234.56)
     model: str = Field(..., example="rolling")
     lookback: int = Field(..., example=4)
@@ -57,6 +58,7 @@ def forecast_top_categories(
     [
       {
         "category_id": 101,
+        "category_name": "Beverages",
         "forecast_value": 1234.56,
         "model": "rolling",
         "lookback": 4,
@@ -64,6 +66,7 @@ def forecast_top_categories(
       },
       {
         "category_id": 102,
+        "category_name": "Snacks",
         "forecast_value": 987.65,
         "model": "rolling",
         "lookback": 4,
@@ -71,7 +74,7 @@ def forecast_top_categories(
       }
     ]
     """
-    category_series = fetch_category_time_series(
+    category_series, category_names = fetch_category_time_series(
         merchant_id=merchant_id,
         bucket_type=bucket_type
     )
@@ -79,6 +82,7 @@ def forecast_top_categories(
     try:
         return forecasting_service.forecast_categories(
             category_series=category_series,
+            category_names=category_names,
             bucket_type=bucket_type,
             model=model,
             lookback=lookback,

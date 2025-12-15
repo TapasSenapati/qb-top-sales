@@ -25,6 +25,7 @@ class TimeSeriesPoint:
 @dataclass
 class CategoryForecastResult:
     category_id: int
+    category_name: str
     forecast_value: float
     model: str
     lookback: int
@@ -57,6 +58,7 @@ class ForecastingService:
     def forecast_categories(
         self,
         category_series: Dict[int, List[TimeSeriesPoint]],
+        category_names: Dict[int, str],
         bucket_type: Literal["DAY","WEEK","MONTH"],
         model: Literal["rolling", "prophet"] = "rolling",
         lookback: Optional[int] = None,
@@ -81,6 +83,7 @@ class ForecastingService:
         results: List[CategoryForecastResult] = []
 
         for category_id, series in category_series.items():
+            category_name = category_names.get(category_id, str(category_id))
             # Defaults
             effective_model = model
             effective_lookback = min(lookback, len(series))
@@ -112,6 +115,7 @@ class ForecastingService:
             results.append(
                 CategoryForecastResult(
                     category_id=category_id,
+                    category_name=category_name,
                     forecast_value=forecast_value,
                     model=effective_model,
                     lookback=effective_lookback,

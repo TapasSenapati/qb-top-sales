@@ -37,7 +37,7 @@ public class TopCategoryController {
                                     schema = @Schema(implementation = TopCategoryResponse.class),
                                     examples = @ExampleObject(
                                             name = "topCategoriesExample",
-                                            value = "[{\n  \"categoryId\": 101,\n  \"totalSalesAmount\": 12345.67,\n  \"totalUnitsSold\": 321,\n  \"orderCount\": 45\n}, {\n  \"categoryId\": 102,\n  \"totalSalesAmount\": 9876.54,\n  \"totalUnitsSold\": 210,\n  \"orderCount\": 30\n}]"
+                                            value = "[{\n  \"categoryId\": 101,\n  \"categoryName\": \"Beverages\",\n  \"totalSalesAmount\": 12345.67,\n  \"totalUnitsSold\": 321,\n  \"orderCount\": 45\n}, {\n  \"categoryId\": 102,\n  \"categoryName\": \"Snacks\",\n  \"totalSalesAmount\": 9876.54,\n  \"totalUnitsSold\": 210,\n  \"orderCount\": 30\n}]"
                                     )
                             )
                     )

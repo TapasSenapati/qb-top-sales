@@ -13,15 +13,17 @@ public interface CategorySalesQueryRepository
 
     @Query(value = """
         SELECT
-          category_id        AS categoryId,
-          total_sales_amount AS totalSalesAmount,
-          total_units_sold   AS totalUnitsSold,
-          order_count        AS orderCount
-        FROM forecasting.category_sales_agg
-        WHERE merchant_id = :merchantId
-          AND bucket_type = :bucketType
-          AND bucket_start = :bucketStart
-        ORDER BY total_sales_amount DESC
+          csa.category_id        AS categoryId,
+          c.name                 AS categoryName,
+          csa.total_sales_amount AS totalSalesAmount,
+          csa.total_units_sold   AS totalUnitsSold,
+          csa.order_count        AS orderCount
+        FROM forecasting.category_sales_agg csa
+        JOIN ingestion.categories c ON c.id = csa.category_id
+        WHERE csa.merchant_id = :merchantId
+          AND csa.bucket_type = :bucketType
+          AND csa.bucket_start = :bucketStart
+        ORDER BY csa.total_sales_amount DESC
         LIMIT :limit
         """,
             nativeQuery = true)

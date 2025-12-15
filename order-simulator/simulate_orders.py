@@ -58,15 +58,15 @@ def wait_for_ingestion(timeout_seconds: int = 60):
         try:
             resp = requests.get(HEALTH_ENDPOINT, timeout=3)
             if resp.status_code == 200:
-                print("✅ ingestion-service is up")
+                print("ingestion-service is up")
                 return
         except Exception:
             pass
 
-        print("⏳ Waiting for ingestion-service...")
+        print("Waiting for ingestion-service...")
         time.sleep(3)
 
-    raise RuntimeError("❌ ingestion-service not ready after timeout")
+    raise RuntimeError("ingestion-service not ready after timeout")
 
 
 def send_orders(count: int = 20, delay_seconds: float = 1.0):

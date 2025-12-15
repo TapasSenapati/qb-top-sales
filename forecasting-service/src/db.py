@@ -1,6 +1,6 @@
 import os
 import psycopg2
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from datetime import datetime
 
 from .service import TimeSeriesPoint
@@ -16,17 +16,19 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "qb_password")
 def fetch_category_time_series(
     merchant_id: int,
     bucket_type: str
-) -> Dict[int, List[TimeSeriesPoint]]:
+) -> Tuple[Dict[int, List[TimeSeriesPoint]], Dict[int, str]]:
 
     sql = """
         SELECT
-            category_id,
-            bucket_start,
-            total_sales_amount
-        FROM forecasting.category_sales_agg
-        WHERE merchant_id = %s
-          AND bucket_type = %s
-        ORDER BY category_id, bucket_start
+            csa.category_id,
+            c.name AS category_name,
+            csa.bucket_start,
+            csa.total_sales_amount
+        FROM forecasting.category_sales_agg csa
+        JOIN ingestion.categories c ON c.id = csa.category_id
+        WHERE csa.merchant_id = %s
+          AND csa.bucket_type = %s
+        ORDER BY csa.category_id, csa.bucket_start
     """
 
     conn = psycopg2.connect(
@@ -44,8 +46,10 @@ def fetch_category_time_series(
         rows = cur.fetchall()
 
         series: Dict[int, List[TimeSeriesPoint]] = {}
+        category_names: Dict[int, str] = {}
 
-        for category_id, bucket_start, value in rows:
+        for category_id, category_name, bucket_start, value in rows:
+            category_names.setdefault(category_id, category_name)
             series.setdefault(category_id, []).append(
                 TimeSeriesPoint(
                     bucket_start=bucket_start,
@@ -53,7 +57,7 @@ def fetch_category_time_series(
                 )
             )
 
-        return series
+        return series, category_names
 
     finally:
         conn.close()
