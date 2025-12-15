@@ -1,4 +1,11 @@
 services:
+  consul:
+    image: consul:1.15
+    container_name: consul
+    command: consul agent -dev -client=0.0.0.0
+    ports:
+      - "8500:8500"
+
   postgres:
     image: postgres:16
     container_name: qb-postgres
@@ -58,6 +65,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_started
+      consul:
+        condition: service_started
     healthcheck:
         test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
         interval: 10s
@@ -84,15 +95,17 @@ services:
         condition: service_healthy
     restart: "no"
 
-  forecasting-service:
+  aggregation-service:
     build:
-      context: ./forecasting-service
+      context: ./aggregation-service
       dockerfile: Dockerfile
-    container_name: forecasting-service
+    container_name: aggregation-service
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
+        condition: service_started
+      consul:
         condition: service_started
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/qb_db

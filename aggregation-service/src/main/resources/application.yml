@@ -1,8 +1,8 @@
 server:
-  port: 8081
+  port: 8082
 spring:
   application:
-    name: ingestion-service
+    name: aggregation-service
 
   cloud:
     consul:
@@ -10,7 +10,7 @@ spring:
       port: 8500
       discovery:
         register: true
-        service-name: ingestion-service
+        service-name: aggregation-service
         health-check-path: /actuator/health
         health-check-interval: 15s
 

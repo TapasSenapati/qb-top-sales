@@ -1,15 +1,17 @@
-package com.tapas.qb.ingestion;
+package com.tapas.qb.aggregation;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
-import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.kafka.annotation.EnableKafka;
 
+
+@EnableKafka
 @SpringBootApplication
-@EnableScheduling
 @EnableDiscoveryClient
-public class IngestionServiceApplication {
+public class AggregationServiceApplication {
+
     public static void main(String[] args) {
-        SpringApplication.run(IngestionServiceApplication.class, args);
+        SpringApplication.run(AggregationServiceApplication.class, args);
     }
 }
