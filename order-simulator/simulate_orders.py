@@ -81,9 +81,27 @@ def send_orders(count: int = 20, delay_seconds: float = 1.0):
         time.sleep(delay_seconds)
 
 
+def send_orders_continuously(delay_seconds: float = 1.0):
+    i = 0
+    while True:
+        i += 1
+        payload = random_order()
+        try:
+            resp = requests.post(ORDERS_ENDPOINT, json=payload, timeout=5)
+            print(f"[continuous #{i}] {resp.status_code} {resp.text}")
+        except Exception as e:
+            print(f"[continuous #{i}] ERROR: {e}")
+        time.sleep(delay_seconds)
+
+
 if __name__ == "__main__":
     count = int(os.getenv("ORDER_COUNT", "20"))
     delay = float(os.getenv("ORDER_DELAY_SECONDS", "1.0"))
+    continuous = os.getenv("ORDER_CONTINUOUS", "false").lower() in {"true", "1", "yes"}
 
     wait_for_ingestion()
-    send_orders(count=count, delay_seconds=delay)
+    if continuous:
+        print("Starting continuous order generation mode...")
+        send_orders_continuously(delay_seconds=delay)
+    else:
+        send_orders(count=count, delay_seconds=delay)

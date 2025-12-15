@@ -90,6 +90,7 @@ services:
       INGESTION_BASE_URL: http://ingestion-service:8081
       ORDER_COUNT: 100
       ORDER_DELAY_SECONDS: 1
+      ORDER_CONTINUOUS: "true"
     depends_on:
       ingestion-service:
         condition: service_healthy

@@ -1,4 +1,4 @@
-from typing import List, Dict, Literal, Optional
+from typing import List, Dict, Optional, Protocol
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -11,6 +11,23 @@ MIN_POINTS_FOR_PROPHET = 3
 
 class ProphetNotAvailableError(Exception):
     pass
+
+# ----------------------------
+# Strategy contracts
+# ----------------------------
+
+class ForecastModel(Protocol):
+    name: str
+
+    def forecast(
+        self,
+        series: List["TimeSeriesPoint"],
+        lookback: int,
+        bucket_type: str,
+        category_id: int,
+        category_name: str,
+    ) -> Optional[float]:
+        ...
 
 # ----------------------------
 # Domain models
@@ -46,12 +63,16 @@ class ForecastingService:
     Stateless forecasting service.
 
     - Uses pre-aggregated time series
-    - Deterministic rolling window by default
-    - Optional Prophet model
+    - Strategy-based model selection (rolling, prophet, ...)
     """
 
     def __init__(self, default_lookback: int = 4):
         self.default_lookback = default_lookback
+        # Registry of forecasting models
+        self._models: Dict[str, ForecastModel] = {
+            "rolling": RollingAverageModel(),
+            "prophet": ProphetModel(),
+        }
 
     # ---------- PUBLIC API ----------
 
@@ -59,8 +80,8 @@ class ForecastingService:
         self,
         category_series: Dict[int, List[TimeSeriesPoint]],
         category_names: Dict[int, str],
-        bucket_type: Literal["DAY","WEEK","MONTH"],
-        model: Literal["rolling", "prophet"] = "rolling",
+        bucket_type: str,
+        model: str = "rolling",
         lookback: Optional[int] = None,
         limit: int = 5
     ) -> List[CategoryForecastResult]:
@@ -82,43 +103,39 @@ class ForecastingService:
         lookback = lookback or self.default_lookback
         results: List[CategoryForecastResult] = []
 
+        model_impl = self._models.get(model)
+        if not model_impl:
+            raise ValueError(f"Unknown forecasting model: {model}")
+
         for category_id, series in category_series.items():
             category_name = category_names.get(category_id, str(category_id))
-            # Defaults
-            effective_model = model
-            effective_lookback = min(lookback, len(series))
-            freq = self._freq_for_bucket(bucket_type)
 
-            # Prophet eligibility check -> fallback to rolling if insufficient points
-            if model == "prophet" and len(series) < MIN_POINTS_FOR_PROPHET:
-                effective_model = "rolling"
+            # Skip if not enough data in general
+            if not series:
+                print(f"[forecasting] Skipping category {category_id}: empty series")
+                continue
 
-            # Final safety check
-            if effective_lookback == 0 or len(series) < effective_lookback:
-                print(
-                    f"[forecasting] Skipping category {category_id}: "
-                    f"only {len(series)} points, need {lookback}"
-                )
-                continue  # insufficient history
-
-            forecast_value = self._forecast_series(
+            forecast_value = model_impl.forecast(
                 series=series,
-                model=effective_model,
-                lookback=effective_lookback,
-                freq=freq
+                lookback=lookback,
+                bucket_type=bucket_type,
+                category_id=category_id,
+                category_name=category_name,
             )
-            confidence = compute_confidence(effective_lookback)
 
             if forecast_value is None:
+                # Model decided to skip (e.g., insufficient history)
                 continue
+
+            confidence = compute_confidence(lookback)
 
             results.append(
                 CategoryForecastResult(
                     category_id=category_id,
                     category_name=category_name,
                     forecast_value=forecast_value,
-                    model=effective_model,
-                    lookback=effective_lookback,
+                    model=model_impl.name,
+                    lookback=lookback,
                     confidence=confidence
                 )
             )
@@ -126,25 +143,6 @@ class ForecastingService:
         # Sort by forecasted value descending
         results.sort(key=lambda r: r.forecast_value, reverse=True)
         return results[:limit]
-
-    # ---------- INTERNAL MODELS ----------
-
-    def _forecast_series(
-        self,
-        series: List[TimeSeriesPoint],
-        model: str,
-        lookback: int,
-        freq: Optional[str] = None
-    ) -> Optional[float]:
-
-        if model == "rolling":
-            return self._rolling_average(series, lookback)
-
-        if model == "prophet":
-            return self._prophet_forecast(series, freq=freq)
-
-        raise ValueError(f"Unknown forecasting model: {model}")
-    
 
     # ---------- MODEL IMPLEMENTATIONS ----------
 
@@ -158,31 +156,60 @@ class ForecastingService:
             return "MS"
         return "D"
 
-    @staticmethod
-    def _rolling_average(
+
+class RollingAverageModel:
+    name = "rolling"
+
+    def forecast(
+        self,
         series: List[TimeSeriesPoint],
-        lookback: int
-    ) -> float:
-        """
-        Deterministic baseline forecast.
-        """
+        lookback: int,
+        bucket_type: str,
+        category_id: int,
+        category_name: str,
+    ) -> Optional[float]:
+        if lookback <= 0 or len(series) < lookback:
+            print(
+                f"[forecasting:rolling] Skipping category {category_id}: "
+                f"only {len(series)} points, need {lookback}"
+            )
+            return None
         values = [p.value for p in series[-lookback:]]
         return sum(values) / lookback
 
-    @staticmethod
-    def _prophet_forecast(
-        series: List[TimeSeriesPoint],
-        freq: str
-    ) -> float:
-        """
-        Prophet-based time-series forecast.
 
-        Predicts ONE future period.
-        """
+class ProphetModel:
+    name = "prophet"
+
+    def forecast(
+        self,
+        series: List[TimeSeriesPoint],
+        lookback: int,
+        bucket_type: str,
+        category_id: int,
+        category_name: str,
+    ) -> Optional[float]:
+        if len(series) < MIN_POINTS_FOR_PROPHET:
+            print(
+                f"[forecasting:prophet] Skipping category {category_id}: "
+                f"only {len(series)} points, need at least {MIN_POINTS_FOR_PROPHET} for Prophet"
+            )
+            return None
+
         try:
             from prophet import Prophet
         except Exception as e:
             raise ProphetNotAvailableError("Prophet model requested but not installed") from e
+
+        # Map bucket_type to Prophet frequency
+        if bucket_type == "DAY":
+            freq = "D"
+        elif bucket_type == "WEEK":
+            freq = "W"
+        elif bucket_type == "MONTH":
+            freq = "MS"
+        else:
+            freq = "D"
 
         df = pd.DataFrame(
             {
@@ -195,12 +222,11 @@ class ForecastingService:
             yearly_seasonality=False,
             weekly_seasonality=False,
             daily_seasonality=False,
-            random_state=42
+            random_state=42,
         )
 
         model.fit(df)
 
-        # Predict ONE future period
         future = model.make_future_dataframe(periods=1, freq=freq)
         forecast = model.predict(future)
 

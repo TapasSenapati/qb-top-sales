@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel, Field
 from typing import List
+from enum import Enum
 from contextlib import asynccontextmanager
 
 from .service import ForecastingService
@@ -31,6 +32,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+class ForecastModelName(str, Enum):
+    rolling = "rolling"
+    prophet = "prophet"
+
+
 forecasting_service = ForecastingService()
 
 
@@ -49,7 +55,7 @@ def health():
 def forecast_top_categories(
     merchant_id: int = Query(..., description="Merchant identifier", examples={"default": {"value": 1}}),
     bucket_type: str = Query(..., regex="^(DAY|WEEK|MONTH)$", description="Aggregation bucket type", examples={"day": {"value": "DAY"}}),
-    model: str = Query("rolling", regex="^(rolling|prophet)$", description="Forecasting model", examples={"rolling": {"value": "rolling"}, "prophet": {"value": "prophet"}}),
+    model: ForecastModelName = Query(ForecastModelName.rolling, description="Forecasting model", examples={"rolling": {"value": "rolling"}, "prophet": {"value": "prophet"}}),
     lookback: int = Query(4, ge=1, le=12, description="Rolling window lookback", examples={"default": {"value": 4}}),
     limit: int = Query(5, ge=1, le=20, description="Max number of categories to return", examples={"default": {"value": 5}}),
 ):
@@ -84,7 +90,7 @@ def forecast_top_categories(
             category_series=category_series,
             category_names=category_names,
             bucket_type=bucket_type,
-            model=model,
+            model=model.value,
             lookback=lookback,
             limit=limit
         )
