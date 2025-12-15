@@ -1,6 +1,8 @@
+version: '3.8'
+
 services:
   consul:
-    image: consul:1.15
+    image: "consul:1.15"
     container_name: consul
     command: consul agent -dev -client=0.0.0.0
     ports:
@@ -115,6 +117,29 @@ services:
       - "8082:8082"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  forecasting-service:
+    build:
+      context: ./forecasting-service
+      dockerfile: Dockerfile
+    container_name: forecasting-service
+    ports:
+      - "8090:8090"
+    depends_on:
+      consul:
+        condition: service_started
+      aggregation-service:
+        condition: service_healthy
+    environment:
+      CONSUL_HOST: consul
+      CONSUL_PORT: 8500
+      SERVICE_NAME: forecasting-service
+      SERVICE_PORT: 8090
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 10s
       timeout: 3s
       retries: 5
