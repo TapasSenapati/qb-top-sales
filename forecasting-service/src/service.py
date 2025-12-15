@@ -11,6 +11,8 @@ except ImportError:
     PROPHET_AVAILABLE = False
 
 
+MIN_POINTS_FOR_PROPHET = 3
+
 # ----------------------------
 # Domain models
 # ----------------------------
@@ -27,12 +29,18 @@ class CategoryForecastResult:
     forecast_value: float
     model: str
     lookback: int
-
-
+    confidence: str
+    
 # ----------------------------
 # Forecasting service
 # ----------------------------
-
+def compute_confidence(lookback: int) -> str:
+    if lookback <= 1:
+        return "LOW"
+    if lookback <= 3:
+        return "MEDIUM"
+    return "HIGH"
+    
 class ForecastingService:
     """
     Stateless forecasting service.
@@ -73,18 +81,27 @@ class ForecastingService:
         results: List[CategoryForecastResult] = []
 
         for category_id, series in category_series.items():
-            if len(series) < lookback:
+            effective_model = model
+
+            # Prophet eligibility check
+            if model == "prophet" and len(series) < MIN_POINTS_FOR_PROPHET:
+                effective_model = "rolling"
+                effective_lookback = min(lookback, len(series))
+            
+            # Final safety check
+            if len(series) < effective_lookback or effective_lookback == 0:
                 print(
                     f"[forecasting] Skipping category {category_id}: "
                     f"only {len(series)} points, need {lookback}"
                 )
-                continue  # insufficient history
-
+                continue # insufficient history
+    
             forecast_value = self._forecast_series(
                 series=series,
-                model=model,
-                lookback=lookback
+                model=effective_model,
+                lookback=effective_lookback
             )
+            confidence = compute_confidence(effective_lookback)
 
             if forecast_value is None:
                 continue
@@ -93,8 +110,9 @@ class ForecastingService:
                 CategoryForecastResult(
                     category_id=category_id,
                     forecast_value=forecast_value,
-                    model=model,
-                    lookback=lookback
+                    model=effective_model,
+                    lookback=effective_lookback,
+                    confidence=confidence
                 )
             )
 
@@ -120,6 +138,7 @@ class ForecastingService:
             return self._prophet_forecast(series)
 
         raise ValueError(f"Unknown forecasting model: {model}")
+    
 
     # ---------- MODEL IMPLEMENTATIONS ----------
 
