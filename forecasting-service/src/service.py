@@ -81,21 +81,22 @@ class ForecastingService:
         results: List[CategoryForecastResult] = []
 
         for category_id, series in category_series.items():
+            # Defaults
             effective_model = model
+            effective_lookback = min(lookback, len(series))
 
-            # Prophet eligibility check
+            # Prophet eligibility check -> fallback to rolling if insufficient points
             if model == "prophet" and len(series) < MIN_POINTS_FOR_PROPHET:
                 effective_model = "rolling"
-                effective_lookback = min(lookback, len(series))
-            
+
             # Final safety check
-            if len(series) < effective_lookback or effective_lookback == 0:
+            if effective_lookback == 0 or len(series) < effective_lookback:
                 print(
                     f"[forecasting] Skipping category {category_id}: "
                     f"only {len(series)} points, need {lookback}"
                 )
-                continue # insufficient history
-    
+                continue  # insufficient history
+
             forecast_value = self._forecast_series(
                 series=series,
                 model=effective_model,
