@@ -4,14 +4,13 @@ from datetime import datetime
 
 import pandas as pd
 
-try:
-    from prophet import Prophet
-    PROPHET_AVAILABLE = True
-except ImportError:
-    PROPHET_AVAILABLE = False
+# Prophet is imported lazily inside forecasting to avoid import cost when not used.
 
 
 MIN_POINTS_FOR_PROPHET = 3
+
+class ProphetNotAvailableError(Exception):
+    pass
 
 # ----------------------------
 # Domain models
@@ -58,6 +57,7 @@ class ForecastingService:
     def forecast_categories(
         self,
         category_series: Dict[int, List[TimeSeriesPoint]],
+        bucket_type: Literal["DAY","WEEK","MONTH"],
         model: Literal["rolling", "prophet"] = "rolling",
         lookback: Optional[int] = None,
         limit: int = 5
@@ -84,6 +84,7 @@ class ForecastingService:
             # Defaults
             effective_model = model
             effective_lookback = min(lookback, len(series))
+            freq = self._freq_for_bucket(bucket_type)
 
             # Prophet eligibility check -> fallback to rolling if insufficient points
             if model == "prophet" and len(series) < MIN_POINTS_FOR_PROPHET:
@@ -100,7 +101,8 @@ class ForecastingService:
             forecast_value = self._forecast_series(
                 series=series,
                 model=effective_model,
-                lookback=effective_lookback
+                lookback=effective_lookback,
+                freq=freq
             )
             confidence = compute_confidence(effective_lookback)
 
@@ -127,21 +129,30 @@ class ForecastingService:
         self,
         series: List[TimeSeriesPoint],
         model: str,
-        lookback: int
+        lookback: int,
+        freq: Optional[str] = None
     ) -> Optional[float]:
 
         if model == "rolling":
             return self._rolling_average(series, lookback)
 
         if model == "prophet":
-            if not PROPHET_AVAILABLE:
-                raise RuntimeError("Prophet model requested but not installed")
-            return self._prophet_forecast(series)
+            return self._prophet_forecast(series, freq=freq)
 
         raise ValueError(f"Unknown forecasting model: {model}")
     
 
     # ---------- MODEL IMPLEMENTATIONS ----------
+
+    @staticmethod
+    def _freq_for_bucket(bucket_type: str) -> str:
+        if bucket_type == "DAY":
+            return "D"
+        if bucket_type == "WEEK":
+            return "W"
+        if bucket_type == "MONTH":
+            return "MS"
+        return "D"
 
     @staticmethod
     def _rolling_average(
@@ -156,13 +167,18 @@ class ForecastingService:
 
     @staticmethod
     def _prophet_forecast(
-        series: List[TimeSeriesPoint]
+        series: List[TimeSeriesPoint],
+        freq: str
     ) -> float:
         """
         Prophet-based time-series forecast.
 
         Predicts ONE future period.
         """
+        try:
+            from prophet import Prophet
+        except Exception as e:
+            raise ProphetNotAvailableError("Prophet model requested but not installed") from e
 
         df = pd.DataFrame(
             {
@@ -174,13 +190,14 @@ class ForecastingService:
         model = Prophet(
             yearly_seasonality=False,
             weekly_seasonality=False,
-            daily_seasonality=False
+            daily_seasonality=False,
+            random_state=42
         )
 
         model.fit(df)
 
         # Predict ONE future period
-        future = model.make_future_dataframe(periods=1, freq="D")
+        future = model.make_future_dataframe(periods=1, freq=freq)
         forecast = model.predict(future)
 
         return float(forecast.iloc[-1]["yhat"])

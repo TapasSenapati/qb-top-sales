@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel, Field
 from typing import List
 from contextlib import asynccontextmanager
@@ -76,9 +76,17 @@ def forecast_top_categories(
         bucket_type=bucket_type
     )
 
-    return forecasting_service.forecast_categories(
-        category_series=category_series,
-        model=model,
-        lookback=lookback,
-        limit=limit
-    )
+    try:
+        return forecasting_service.forecast_categories(
+            category_series=category_series,
+            bucket_type=bucket_type,
+            model=model,
+            lookback=lookback,
+            limit=limit
+        )
+    except Exception as e:
+        # Handle Prophet missing case specifically
+        from .service import ProphetNotAvailableError
+        if isinstance(e, ProphetNotAvailableError):
+            raise HTTPException(status_code=400, detail=str(e))
+        raise
