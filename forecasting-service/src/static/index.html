@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forecasting Service</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Forecasting Service UI</h1>
+        </header>
+        <nav>
+            <button class="tab-button active" data-tab="forecast">Get Forecast</button>
+            <button class="tab-button" data-tab="compare">Compare Models</button>
+            <button class="tab-button" data-tab="evaluate">Evaluate Models</button>
+        </nav>
+        <main>
+            <!-- Tab Content -->
+            <div id="forecast" class="tab-content active">
+                <h2>Get Forecast for Top Categories</h2>
+                <form id="forecast-form">
+                    <div class="form-group">
+                        <label for="forecast-merchant-id">Merchant ID</label>
+                        <input id="forecast-merchant-id" type="number" name="merchant_id" value="1" required>
+                        <p class="description">The unique identifier for the merchant (e.g., 1).</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="forecast-bucket-type">Time Bucket</label>
+                        <select id="forecast-bucket-type" name="bucket_type">
+                            <option value="DAY">Day</option>
+                            <option value="WEEK">Week</option>
+                            <option value="MONTH">Month</option>
+                        </select>
+                        <p class="description">The time period to aggregate sales by.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="forecast-model">Forecasting Model</label>
+                        <select id="forecast-model" name="model">
+                            <option value="rolling">Rolling Average</option>
+                            <option value="wma">Weighted Moving Average</option>
+                            <option value="ses">Exponential Smoothing</option>
+                            <option value="snaive">Seasonal Naive</option>
+                        </select>
+                        <p class="description">The algorithm used to generate the forecast.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="forecast-lookback">Lookback</label>
+                        <input id="forecast-lookback" type="number" name="lookback" value="4" required>
+                        <p class="description">Number of recent time buckets to use in the forecast.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="forecast-limit">Limit</label>
+                        <input id="forecast-limit" type="number" name="limit" value="5" required>
+                        <p class="description">The max number of top categories to return.</p>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit">Get Forecast</button>
+                    </div>
+                </form>
+                <div id="forecast-results" class="results-area"></div>
+            </div>
+
+            <div id="compare" class="tab-content">
+                <h2>Compare All Models</h2>
+                <form id="compare-form">
+                    <div class="form-group">
+                        <label for="compare-merchant-id">Merchant ID</label>
+                        <input id="compare-merchant-id" type="number" name="merchant_id" value="1" required>
+                        <p class="description">The unique identifier for the merchant (e.g., 1).</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="compare-bucket-type">Time Bucket</label>
+                        <select id="compare-bucket-type" name="bucket_type">
+                            <option value="DAY">Day</option>
+                            <option value="WEEK">Week</option>
+                            <option value="MONTH">Month</option>
+                        </select>
+                        <p class="description">The time period to aggregate sales by.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="compare-lookback">Lookback</label>
+                        <input id="compare-lookback" type="number" name="lookback" value="4" required>
+                        <p class="description">Number of recent time buckets to use in the forecast.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="compare-limit">Limit</label>
+                        <input id="compare-limit" type="number" name="limit" value="5" required>
+                        <p class="description">The max number of top categories to return.</p>
+                    </div>
+                    <div class="form-group">
+                        <fieldset>
+                            <legend>Models to Compare</legend>
+                            <div class="checkbox-group">
+                                <div>
+                                    <input type="checkbox" id="compare-rolling" name="models" value="rolling" checked>
+                                    <label for="compare-rolling">Rolling Average</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="compare-wma" name="models" value="wma" checked>
+                                    <label for="compare-wma">Weighted Moving Average</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="compare-ses" name="models" value="ses" checked>
+                                    <label for="compare-ses">Exponential Smoothing</label>
+                                </div>
+                                <div>
+                                    <input type="checkbox" id="compare-snaive" name="models" value="snaive" checked>
+                                    <label for="compare-snaive">Seasonal Naive</label>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit">Compare Models</button>
+                    </div>
+                </form>
+                <div id="compare-results" class="results-area"></div>
+            </div>
+
+            <div id="evaluate" class="tab-content">
+                <h2>Evaluate Model Performance</h2>
+                <form id="evaluate-form">
+                    <div class="form-group">
+                        <label for="evaluate-merchant-id">Merchant ID</label>
+                        <input id="evaluate-merchant-id" type="number" name="merchant_id" value="1" required>
+                        <p class="description">The merchant to run the evaluation for.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="evaluate-bucket-type">Time Bucket</label>
+                        <select id="evaluate-bucket-type" name="bucket_type">
+                            <option value="DAY">Day</option>
+                            <option value="WEEK">Week</option>
+                            <option value="MONTH">Month</option>
+                        </select>
+                        <p class="description">The time period used for sales aggregation.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="evaluate-test-points">Test Points</label>
+                        <input id="evaluate-test-points" type="number" name="test_points" value="5" required>
+                        <p class="description">Number of recent data points to use for validation.</p>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit">Run Evaluation</button>
+                    </div>
+                </form>
+                <div id="evaluate-results" class="results-area"></div>
+            </div>
+        </main>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>

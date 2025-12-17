@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Protocol
+from typing import List, Dict, Optional, Protocol, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 from fastapi import HTTPException
@@ -23,7 +23,7 @@ class ForecastModel(Protocol):
         bucket_type: str,
         category_id: int,
         category_name: str,
-    ) -> Optional[float]:
+    ) -> Tuple[Optional[float], Optional[str]]:
         ...
 
 # ----------------------------
@@ -43,6 +43,11 @@ class CategoryForecastResult:
     model: str
     lookback: int
     confidence: str
+
+@dataclass
+class ForecastResult:
+    forecasts: List[CategoryForecastResult]
+    messages: List[str]
 
 # ----------------------------
 # Forecasting service
@@ -80,12 +85,16 @@ class ForecastingService:
         model: str = "rolling",
         lookback: Optional[int] = None,
         limit: int = 5
-    ) -> List[CategoryForecastResult]:
+    ) -> ForecastResult:
         """
         Forecast next-period sales per category.
         """
+        if not category_series:
+            return ForecastResult(forecasts=[], messages=["No historical sales data found for the selected Merchant ID and Time Bucket."])
+
         lookback = lookback or self.default_lookback
         results: List[CategoryForecastResult] = []
+        messages: List[str] = []
 
         model_impl = self._models.get(model)
         if not model_impl:
@@ -101,25 +110,27 @@ class ForecastingService:
         for category_id, series in category_series.items():
             category_name = category_names.get(category_id, str(category_id))
             
-            # Skip if not enough data in general
             if not series:
-                print(f"[forecasting] Skipping category {category_id}: empty series")
+                messages.append(f"Skipping category '{category_name}': No sales data available.")
                 continue
 
             try:
-                forecast_value = model_impl.forecast(
+                forecast_value, message = model_impl.forecast(
                     series=series,
                     lookback=lookback,
                     bucket_type=bucket_type,
                     category_id=category_id,
                     category_name=category_name,
                 )
+                if message:
+                    messages.append(message)
+
             except Exception as e:
                 logger.error(f"Prediction failed for category {category_id}: {e}")
+                messages.append(f"An unexpected error occurred for category '{category_name}'.")
                 continue
 
             if forecast_value is None:
-                # Model decided to skip (e.g., insufficient history)
                 continue
 
             confidence = compute_confidence(lookback)
@@ -133,22 +144,15 @@ class ForecastingService:
                     confidence=confidence
                 )
             )
+        
+        if not results and not messages:
+             messages.append(f"Not enough historical data to generate a forecast with the selected model ('{model}') and lookback period ({lookback}). Try a smaller lookback value or a different model.")
 
         # Sort by forecasted value descending
         results.sort(key=lambda r: r.forecast_value, reverse=True)
-        return results[:limit]
+        return ForecastResult(forecasts=results[:limit], messages=messages)
 
 # ---------- MODEL IMPLEMENTATIONS ----------
-
-@staticmethod
-def _freq_for_bucket(bucket_type: str) -> str:
-    if bucket_type == "DAY":
-        return "D"
-    if bucket_type == "WEEK":
-        return "W"
-    if bucket_type == "MONTH":
-        return "MS"
-    return "D"
 
 class RollingAverageModel:
     name = "rolling"
@@ -160,16 +164,14 @@ class RollingAverageModel:
         bucket_type: str,
         category_id: int,
         category_name: str,
-    ) -> Optional[float]:
+    ) -> Tuple[Optional[float], Optional[str]]:
         if lookback <= 0 or len(series) < lookback:
-            print(
-                f"[forecasting:rolling] Skipping category {category_id}: "
-                f"only {len(series)} points, need {lookback}"
-            )
-            return None
+            message = (f"Skipping category '{category_name}': "
+                       f"Not enough data for 'rolling' model (needs {lookback}, has {len(series)}).")
+            return None, message
 
         values = [p.value for p in series[-lookback:]]
-        return sum(values) / lookback
+        return sum(values) / lookback, None
 
 class WeightedMovingAverageModel:
     name = "wma"
@@ -181,19 +183,17 @@ class WeightedMovingAverageModel:
         bucket_type: str,
         category_id: int,
         category_name: str,
-    ) -> Optional[float]:
+    ) -> Tuple[Optional[float], Optional[str]]:
         if lookback <= 0 or len(series) < lookback:
-            print(
-                f"[forecasting:wma] Skipping category {category_id}: "
-                f"only {len(series)} points, need {lookback}"
-            )
-            return None
+            message = (f"Skipping category '{category_name}': "
+                       f"Not enough data for 'wma' model (needs {lookback}, has {len(series)}).")
+            return None, message
 
         values = [p.value for p in series[-lookback:]]
         weights = range(1, lookback + 1)
         
         weighted_sum = sum(v * w for v, w in zip(values, weights))
-        return weighted_sum / sum(weights)
+        return weighted_sum / sum(weights), None
 
 class ExponentialSmoothingModel:
     name = "ses"
@@ -205,26 +205,24 @@ class ExponentialSmoothingModel:
         bucket_type: str,
         category_id: int,
         category_name: str,
-    ) -> Optional[float]:
+    ) -> Tuple[Optional[float], Optional[str]]:
         if len(series) < 2:
-            print(
-                f"[forecasting:ses] Skipping category {category_id}: "
-                f"only {len(series)} points, need at least 2 for SES"
-            )
-            return None
+            message = (f"Skipping category '{category_name}': "
+                       f"Not enough data for 'ses' model (needs at least 2 points, has {len(series)}).")
+            return None, message
         
         try:
             from statsmodels.tsa.api import SimpleExpSmoothing
             
             values = [p.value for p in series]
             model = SimpleExpSmoothing(values, initialization_method="estimated").fit()
-            return model.forecast(1)[0]
+            return model.forecast(1)[0], None
         
         except ImportError:
             raise HTTPException(status_code=501, detail="Statsmodels library not installed. Cannot use 'ses' model.")
         except Exception as e:
             logger.error(f"Exponential smoothing failed for category {category_id}: {e}")
-            return None
+            return None, f"Error during 'ses' forecast for category '{category_name}'."
 
 class SeasonalNaiveModel:
     name = "snaive"
@@ -236,27 +234,23 @@ class SeasonalNaiveModel:
         bucket_type: str,
         category_id: int,
         category_name: str,
-    ) -> Optional[float]:
+    ) -> Tuple[Optional[float], Optional[str]]:
         seasonal_period = self._get_seasonal_period(bucket_type)
         if seasonal_period is None:
-            return None
+            return None, f"Seasonal naive model ('snaive') is not applicable for bucket type '{bucket_type}'."
 
         if len(series) < seasonal_period:
-            print(
-                f"[forecasting:snaive] Skipping category {category_id}: "
-                f"only {len(series)} points, need at least {seasonal_period} for Seasonal Naive"
-            )
-            return None
+            message = (f"Skipping category '{category_name}': Not enough data for 'snaive' "
+                       f"(needs {seasonal_period} points for seasonality, has {len(series)}).")
+            return None, message
 
-        # The forecast is the last value from the same season
-        return series[-seasonal_period].value
+        return series[-seasonal_period].value, None
 
     def _get_seasonal_period(self, bucket_type: str) -> Optional[int]:
         if bucket_type == "DAY":
-            return 7  # Weekly seasonality
+            return 7
         if bucket_type == "WEEK":
-            return 52  # Yearly seasonality
+            return 52
         if bucket_type == "MONTH":
-            return 12  # Yearly seasonality
+            return 12
         return None
-
