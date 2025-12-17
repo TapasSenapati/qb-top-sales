@@ -1,7 +1,7 @@
 import os
 import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import requests
 
@@ -23,11 +23,14 @@ MERCHANT_PRODUCTS = {
 CURRENCIES = ["USD", "EUR", "INR"]
 
 
-def random_order():
+def random_order(order_date=None):
     merchant_id = random.choice(list(MERCHANT_PRODUCTS.keys()))
     product_ids = MERCHANT_PRODUCTS[merchant_id]
 
-    order_date = datetime.now(timezone.utc).isoformat()
+    if order_date is None:
+        order_date = datetime.now(timezone.utc)
+    
+    order_date = order_date.isoformat()
     currency = random.choice(CURRENCIES)
 
     num_items = random.randint(1, min(4, len(product_ids)))
@@ -94,14 +97,47 @@ def send_orders_continuously(delay_seconds: float = 1.0):
         time.sleep(delay_seconds)
 
 
+def send_orders_for_past_days(days: int, max_orders_per_day: int):
+    today = datetime.now(timezone.utc)
+    for day in range(days, 0, -1):
+        target_date = today - timedelta(days=day)
+        num_orders = random.randint(1, max_orders_per_day)
+        print(f"--- Sending {num_orders} orders for {target_date.date()} ---")
+        for i in range(num_orders):
+            # jitter the timestamp to make it more realistic
+            jitter = timedelta(
+                hours=random.randint(0, 23),
+                minutes=random.randint(0, 59),
+                seconds=random.randint(0, 59)
+            )
+            
+            payload = random_order(order_date=target_date.replace(hour=0, minute=0, second=0, microsecond=0) + jitter)
+            try:
+                resp = requests.post(ORDERS_ENDPOINT, json=payload, timeout=5)
+                print(f"[{i + 1}/{num_orders}] {resp.status_code} {resp.text}")
+            except Exception as e:
+                print(f"[{i + 1}/{num_orders}] ERROR: {e}")
+            time.sleep(0.1)
+
+
 if __name__ == "__main__":
+    backfill_days = int(os.getenv("BACKFILL_DAYS", "90"))
+    max_orders_per_day = int(os.getenv("MAX_ORDERS_PER_DAY", "50"))
+    
+    wait_for_ingestion()
+
+    if backfill_days > 0:
+        print(f"Starting backfill for the last {backfill_days} days...")
+        send_orders_for_past_days(days=backfill_days, max_orders_per_day=max_orders_per_day)
+
     count = int(os.getenv("ORDER_COUNT", "20"))
     delay = float(os.getenv("ORDER_DELAY_SECONDS", "1.0"))
     continuous = os.getenv("ORDER_CONTINUOUS", "false").lower() in {"true", "1", "yes"}
 
-    wait_for_ingestion()
     if continuous:
         print("Starting continuous order generation mode...")
         send_orders_continuously(delay_seconds=delay)
     else:
+        print(f"Starting generating {count} orders...")
         send_orders(count=count, delay_seconds=delay)
+        
