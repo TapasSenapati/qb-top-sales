@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Prophet is imported lazily inside forecasting to avoid import cost when not used.
 MIN_POINTS_FOR_PROPHET = 3
 # Feature flags
-ENABLE_PROPHET = False
+ENABLE_PROPHET = True
 
 class ProphetNotAvailableError(Exception):
     pass
@@ -73,7 +73,8 @@ class ForecastingService:
         # Registry of forecasting models
         self._models: Dict[str, ForecastModel] = {
             "rolling": RollingAverageModel(),
-            # "prophet": ProphetModel(),
+            "wma": WeightedMovingAverageModel(),
+            "ses": ExponentialSmoothingModel(),
         }
         if ENABLE_PROPHET:
             self._models["prophet"] = ProphetModel()
@@ -180,6 +181,61 @@ class RollingAverageModel:
 
         values = [p.value for p in series[-lookback:]]
         return sum(values) / lookback
+
+class WeightedMovingAverageModel:
+    name = "wma"
+
+    def forecast(
+        self,
+        series: List[TimeSeriesPoint],
+        lookback: int,
+        bucket_type: str,
+        category_id: int,
+        category_name: str,
+    ) -> Optional[float]:
+        if lookback <= 0 or len(series) < lookback:
+            print(
+                f"[forecasting:wma] Skipping category {category_id}: "
+                f"only {len(series)} points, need {lookback}"
+            )
+            return None
+
+        values = [p.value for p in series[-lookback:]]
+        weights = range(1, lookback + 1)
+        
+        weighted_sum = sum(v * w for v, w in zip(values, weights))
+        return weighted_sum / sum(weights)
+
+class ExponentialSmoothingModel:
+    name = "ses"
+
+    def forecast(
+        self,
+        series: List[TimeSeriesPoint],
+        lookback: int,
+        bucket_type: str,
+        category_id: int,
+        category_name: str,
+    ) -> Optional[float]:
+        if len(series) < 2:
+            print(
+                f"[forecasting:ses] Skipping category {category_id}: "
+                f"only {len(series)} points, need at least 2 for SES"
+            )
+            return None
+        
+        try:
+            from statsmodels.tsa.api import SimpleExpSmoothing
+            
+            values = [p.value for p in series]
+            model = SimpleExpSmoothing(values, initialization_method="estimated").fit()
+            return model.forecast(1)[0]
+        
+        except ImportError:
+            raise HTTPException(status_code=501, detail="Statsmodels library not installed. Cannot use 'ses' model.")
+        except Exception as e:
+            logger.error(f"Exponential smoothing failed for category {category_id}: {e}")
+            return None
 
 class ProphetModel:
     name = "prophet"

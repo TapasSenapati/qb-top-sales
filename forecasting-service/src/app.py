@@ -34,6 +34,8 @@ app = FastAPI(
 
 class ForecastModelName(str, Enum):
     rolling = "rolling"
+    wma = "wma"
+    ses = "ses"
     prophet = "prophet"
 
 
@@ -55,7 +57,7 @@ def health():
 def forecast_top_categories(
     merchant_id: int = Query(..., description="Merchant identifier", examples={"default": {"value": 1}}),
     bucket_type: str = Query(..., regex="^(DAY|WEEK|MONTH)$", description="Aggregation bucket type", examples={"day": {"value": "DAY"}}),
-    model: ForecastModelName = Query(ForecastModelName.rolling, description="Forecasting model", examples={"rolling": {"value": "rolling"}, "prophet": {"value": "prophet"}}),
+    model: ForecastModelName = Query(ForecastModelName.rolling, description="Forecasting model", examples={"rolling": {"value": "rolling"}, "wma": {"value": "wma"}, "ses": {"value": "ses"}, "prophet": {"value": "prophet"}}),
     lookback: int = Query(4, ge=1, le=12, description="Rolling window lookback", examples={"default": {"value": 4}}),
     limit: int = Query(5, ge=1, le=20, description="Max number of categories to return", examples={"default": {"value": 5}}),
 ):
