@@ -8,13 +8,6 @@ import logging
 # Configure logger
 logger = logging.getLogger(__name__)
 
-# Prophet is imported lazily inside forecasting to avoid import cost when not used.
-MIN_POINTS_FOR_PROPHET = 3
-# Feature flags
-ENABLE_PROPHET = True
-
-class ProphetNotAvailableError(Exception):
-    pass
 
 # ----------------------------
 # Strategy contracts
@@ -66,7 +59,7 @@ class ForecastingService:
     """
     Stateless forecasting service.
     - Uses pre-aggregated time series
-    - Strategy-based model selection (rolling, prophet, ...)
+    - Strategy-based model selection (rolling,wma ,etc ...)
     """
     def __init__(self, default_lookback: int = 4):
         self.default_lookback = default_lookback
@@ -75,9 +68,8 @@ class ForecastingService:
             "rolling": RollingAverageModel(),
             "wma": WeightedMovingAverageModel(),
             "ses": ExponentialSmoothingModel(),
+            "snaive": SeasonalNaiveModel(),
         }
-        if ENABLE_PROPHET:
-            self._models["prophet"] = ProphetModel()
     # ---------- PUBLIC API ----------
 
     def forecast_categories(
@@ -122,9 +114,6 @@ class ForecastingService:
                     category_id=category_id,
                     category_name=category_name,
                 )
-            except ProphetNotAvailableError as e:
-                # Re-raise to be handled by controller (400 Bad Request)
-                raise e
             except Exception as e:
                 logger.error(f"Prediction failed for category {category_id}: {e}")
                 continue
@@ -237,8 +226,8 @@ class ExponentialSmoothingModel:
             logger.error(f"Exponential smoothing failed for category {category_id}: {e}")
             return None
 
-class ProphetModel:
-    name = "prophet"
+class SeasonalNaiveModel:
+    name = "snaive"
 
     def forecast(
         self,
@@ -248,45 +237,26 @@ class ProphetModel:
         category_id: int,
         category_name: str,
     ) -> Optional[float]:
-        if len(series) < MIN_POINTS_FOR_PROPHET:
+        seasonal_period = self._get_seasonal_period(bucket_type)
+        if seasonal_period is None:
+            return None
+
+        if len(series) < seasonal_period:
             print(
-                f"[forecasting:prophet] Skipping category {category_id}: "
-                f"only {len(series)} points, need at least {MIN_POINTS_FOR_PROPHET} for Prophet"
+                f"[forecasting:snaive] Skipping category {category_id}: "
+                f"only {len(series)} points, need at least {seasonal_period} for Seasonal Naive"
             )
             return None
 
-        # Map bucket_type to Prophet frequency
+        # The forecast is the last value from the same season
+        return series[-seasonal_period].value
+
+    def _get_seasonal_period(self, bucket_type: str) -> Optional[int]:
         if bucket_type == "DAY":
-            freq = "D"
-        elif bucket_type == "WEEK":
-            freq = "W"
-        elif bucket_type == "MONTH":
-            freq = "MS"
-        else:
-            freq = "D"
+            return 7  # Weekly seasonality
+        if bucket_type == "WEEK":
+            return 52  # Yearly seasonality
+        if bucket_type == "MONTH":
+            return 12  # Yearly seasonality
+        return None
 
-        try:
-            from prophet import Prophet
-            
-            df = pd.DataFrame({
-                "ds": [p.bucket_start for p in series],
-                "y": [p.value for p in series],
-            })
-
-            model = Prophet(
-                yearly_seasonality=False,
-                weekly_seasonality=False,
-                daily_seasonality=False
-            )
-            
-            model.fit(df)
-            future = model.make_future_dataframe(periods=1, freq=freq)
-            forecast = model.predict(future)
-            
-            return float(forecast.iloc[-1]["yhat"])
-
-        except ImportError:
-             raise ProphetNotAvailableError("Prophet library not installed.")
-        except Exception as e:
-            # Catch backend initialization errors (like stan_backend)
-            raise ProphetNotAvailableError(f"Prophet initialization failed: {str(e)}") from e

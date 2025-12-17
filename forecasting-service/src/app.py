@@ -36,7 +36,7 @@ class ForecastModelName(str, Enum):
     rolling = "rolling"
     wma = "wma"
     ses = "ses"
-    prophet = "prophet"
+    snaive = "snaive"
 
 
 forecasting_service = ForecastingService()
@@ -57,7 +57,7 @@ def health():
 def forecast_top_categories(
     merchant_id: int = Query(..., description="Merchant identifier", examples={"default": {"value": 1}}),
     bucket_type: str = Query(..., regex="^(DAY|WEEK|MONTH)$", description="Aggregation bucket type", examples={"day": {"value": "DAY"}}),
-    model: ForecastModelName = Query(ForecastModelName.rolling, description="Forecasting model", examples={"rolling": {"value": "rolling"}, "wma": {"value": "wma"}, "ses": {"value": "ses"}, "prophet": {"value": "prophet"}}),
+    model: ForecastModelName = Query(ForecastModelName.rolling, description="Forecasting model", examples={"rolling": {"value": "rolling"}, "wma": {"value": "wma"}, "ses": {"value": "ses"}, "snaive": {"value": "snaive"}}),
     lookback: int = Query(4, ge=1, le=12, description="Rolling window lookback", examples={"default": {"value": 4}}),
     limit: int = Query(5, ge=1, le=20, description="Max number of categories to return", examples={"default": {"value": 5}}),
 ):
@@ -97,8 +97,4 @@ def forecast_top_categories(
             limit=limit
         )
     except Exception as e:
-        # Handle Prophet missing case specifically
-        from .service import ProphetNotAvailableError
-        if isinstance(e, ProphetNotAvailableError):
-            raise HTTPException(status_code=400, detail=str(e))
         raise

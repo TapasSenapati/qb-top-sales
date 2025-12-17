@@ -6,7 +6,6 @@ python-consul2==0.1.5
 
 pandas==2.2.2
 numpy<2.0
-prophet==1.1.5
 statsmodels==0.14.2
 
 psycopg2-binary==2.9.9
