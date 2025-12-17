@@ -9,3 +9,4 @@ numpy<2.0
 statsmodels==0.14.2
 
 psycopg2-binary==2.9.9
+APScheduler==3.10.4

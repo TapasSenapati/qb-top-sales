@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -7,20 +8,21 @@ from enum import Enum
 from contextlib import asynccontextmanager
 import os
 
-from .service import ForecastingService, ForecastResult, CategoryForecastResult
-from .db import fetch_category_time_series
+from . import db
+from .service import ForecastingService, CategoryForecastResult, compute_confidence # Import compute_confidence
 from .consul_registration import register_service, deregister_service
 from .evaluate_models import evaluate_models
-from dataclasses import asdict
 
+logger = logging.getLogger(__name__)
 
 class CategoryForecastResponse(BaseModel):
     category_id: int = Field(..., example=101)
     category_name: str = Field(..., example="Beverages")
     forecast_value: float = Field(..., example=1234.56)
     model: str = Field(..., example="rolling")
-    lookback: int = Field(..., example=4)
-    confidence: str = Field(..., example="MEDIUM")
+    lookback: int = Field(..., example=4)      # Re-added
+    confidence: str = Field(..., example="MEDIUM") # Re-added
+
 
 class ForecastResponse(BaseModel):
     forecasts: List[CategoryForecastResponse]
@@ -80,7 +82,9 @@ def forecast_top_categories(
     lookback: int = Query(4, ge=1, le=12, description="Rolling window lookback", examples={"default": {"value": 4}}),
     limit: int = Query(5, ge=1, le=20, description="Max number of categories to return", examples={"default": {"value": 5}}),
 ):
-    category_series, category_names = fetch_category_time_series(
+    # This endpoint still calculates on-demand, which could be a future improvement.
+    logger.info(f"Received /forecast/top-categories request for merchant_id={merchant_id}, bucket_type={bucket_type}, model={model}, lookback={lookback}, limit={limit}")
+    category_series, category_names = db.fetch_category_time_series(
         merchant_id=merchant_id,
         bucket_type=bucket_type
     )
@@ -94,49 +98,63 @@ def forecast_top_categories(
             lookback=lookback,
             limit=limit
         )
-        return ForecastResponse(forecasts=[asdict(f) for f in result.forecasts], messages=result.messages)
+        return ForecastResponse(forecasts=[
+            CategoryForecastResponse(
+                category_id=f.category_id,
+                category_name=f.category_name,
+                model=f.model,
+                forecast_value=f.forecast_value,
+                lookback=f.lookback,
+                confidence=f.confidence
+            ) for f in result.forecasts
+        ], messages=result.messages)
     except Exception as e:
+        logger.error(f"Error processing /forecast/top-categories request: {e}", exc_info=True)
         raise
-
 
 @app.get(
     "/forecast/compare-models",
     response_model=ForecastResponse,
     tags=["forecast"],
-    summary="Compare all models for top categories",
-    description="For a given category, return a forecast from each model.",
+    summary="Compare all models for top categories (from pre-computed results)",
+    description="Fetches the latest pre-computed forecast results for all models.",
 )
 def compare_models(
     merchant_id: int = Query(..., description="Merchant identifier", examples={"default": {"value": 1}}),
-    bucket_type: str = Query(..., regex="^(DAY|WEEK|MONTH)$", description="Aggregation bucket type", examples={"day": {"value": "DAY"}}),
-    lookback: int = Query(4, ge=1, le=12, description="Rolling window lookback", examples={"default": {"value": 4}}),
     limit: int = Query(5, ge=1, le=20, description="Max number of categories to return", examples={"default": {"value": 5}}),
-    models: List[str] = Query(list(ForecastModelName)),
 ):
-    category_series, category_names = fetch_category_time_series(
-        merchant_id=merchant_id,
-        bucket_type=bucket_type
-    )
+    logger.info(f"Received /forecast/compare-models request for merchant_id={merchant_id}, limit={limit}")
+    latest_forecasts = db.fetch_latest_forecasts(merchant_id, limit)
+
+    if not latest_forecasts:
+        return ForecastResponse(forecasts=[], messages=["No pre-computed forecasts found for this merchant."])
 
     all_forecasts = []
-    all_messages = []
-    for model_name in models:
-        try:
-            result = forecasting_service.forecast_categories(
-                category_series=category_series,
-                category_names=category_names,
-                bucket_type=bucket_type,
-                model=model_name,
-                lookback=lookback,
-                limit=limit
-            )
-            all_forecasts.extend(result.forecasts)
-            all_messages.extend(result.messages)
-        except Exception:
-            # In a real app, you might want to log this
-            continue
+    # Hardcode lookback for now as worker uses fixed value
+    fixed_lookback = 4
+    fixed_confidence = compute_confidence(fixed_lookback)
 
-    return ForecastResponse(forecasts=[asdict(f) for f in all_forecasts], messages=list(set(all_messages)))
+    for forecast_row in latest_forecasts:
+        # The pre-computed forecast values are a list of dicts.
+        # For this API, we'll just take the first predicted value.
+        forecast_values = forecast_row['forecasted_values']
+        first_forecast_value = forecast_values[0]['value'] if forecast_values else 0.0
+
+        all_forecasts.append(
+            CategoryForecastResponse(
+                category_id=forecast_row['category_id'],
+                category_name=forecast_row['category_name'],
+                model=forecast_row['model_name'],
+                forecast_value=first_forecast_value,
+                lookback=fixed_lookback,    # Injected
+                confidence=fixed_confidence # Injected
+            )
+        )
+    
+    generated_at = latest_forecasts[0]['generated_at'].isoformat() if latest_forecasts else 'N/A'
+    messages = [f"Displaying latest forecasts generated at {generated_at} UTC."]
+
+    return ForecastResponse(forecasts=all_forecasts, messages=messages)
 
 
 @app.get(
@@ -159,3 +177,5 @@ def run_evaluation(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+

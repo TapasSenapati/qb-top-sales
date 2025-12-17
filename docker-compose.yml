@@ -132,16 +132,45 @@ services:
         condition: service_started
       aggregation-service:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       CONSUL_HOST: consul
       CONSUL_PORT: 8500
       SERVICE_NAME: forecasting-service
       SERVICE_PORT: 8090
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: qb_db
+      DB_USER: qb_user
+      DB_PASSWORD: qb_password
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8090/health" ]
       interval: 10s
       timeout: 3s
       retries: 5
+
+  forecasting-worker:
+    build:
+      context: ./forecasting-service
+      dockerfile: Dockerfile
+    container_name: forecasting-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      consul:
+        condition: service_started
+      aggregation-service:
+        condition: service_healthy
+    environment:
+      CONSUL_HOST: consul
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: qb_db
+      DB_USER: qb_user
+      DB_PASSWORD: qb_password
+    command: python -m src.worker
+
 
 volumes:
   qb-postgres-data:

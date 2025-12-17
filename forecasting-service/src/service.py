@@ -45,13 +45,16 @@ class CategoryForecastResult:
     confidence: str
 
 @dataclass
+class ModelForecast:
+    forecast: Optional[List[TimeSeriesPoint]]
+    mae: Optional[float]
+
+
+@dataclass
 class ForecastResult:
     forecasts: List[CategoryForecastResult]
     messages: List[str]
 
-# ----------------------------
-# Forecasting service
-# ----------------------------
 
 def compute_confidence(lookback: int) -> str:
     if lookback <= 1:
@@ -59,6 +62,7 @@ def compute_confidence(lookback: int) -> str:
     if lookback <= 3:
         return "MEDIUM"
     return "HIGH"
+
 
 class ForecastingService:
     """
@@ -75,6 +79,57 @@ class ForecastingService:
             "ses": ExponentialSmoothingModel(),
             "snaive": SeasonalNaiveModel(),
         }
+
+    def run_all_models(
+        self,
+        category_series: Dict[int, List[TimeSeriesPoint]],
+        lookback: int,
+        limit: int,
+    ) -> Dict[int, Dict[str, Dict[str, ModelForecast]]]:
+        """
+        Run all available models for each category and return the results.
+        This is used by the background scheduler.
+        """
+        all_results = {}
+        bucket_type = "DAY"  # Hardcoded as per our strategy for the background job
+
+        for category_id, series in category_series.items():
+            category_results = {"models": {}}
+            for model_name, model_impl in self._models.items():
+                try:
+                    # Note: The existing forecast methods return a single next value.
+                    # For this implementation, we will wrap it in a list to represent a 1-step forecast.
+                    # A future enhancement could be to have models forecast multiple steps.
+                    forecast_value, message = model_impl.forecast(
+                        series=series,
+                        lookback=lookback,
+                        bucket_type=bucket_type,
+                        category_id=category_id,
+                        category_name=str(category_id), # Name is not critical here
+                    )
+                    
+                    forecast_points = None
+                    if forecast_value is not None:
+                        # Determine the next bucket_start. This is a simplification.
+                        last_bucket_start = series[-1].bucket_start
+                        next_bucket_start = last_bucket_start + pd.Timedelta(days=1)
+                        forecast_points = [TimeSeriesPoint(bucket_start=next_bucket_start, value=forecast_value)]
+
+                    # MAE is not calculated in this flow, so we leave it as None.
+                    # It's part of the 'evaluate-models' flow.
+                    category_results["models"][model_name] = ModelForecast(
+                        forecast=forecast_points,
+                        mae=None 
+                    )
+
+                except Exception as e:
+                    logger.error(f"Model '{model_name}' failed for category {category_id}: {e}")
+                    category_results["models"][model_name] = ModelForecast(forecast=None, mae=None)
+            
+            all_results[category_id] = category_results
+        
+        return all_results
+
     # ---------- PUBLIC API ----------
 
     def forecast_categories(

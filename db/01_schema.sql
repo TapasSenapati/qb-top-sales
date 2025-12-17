@@ -100,3 +100,21 @@ CREATE TABLE IF NOT EXISTS forecasting.processed_events
     processed_at TIMESTAMPTZ NOT NULL
 );
 
+-- forecasting.category_sales_forecast
+CREATE TABLE IF NOT EXISTS forecasting.category_sales_forecast
+(
+    id                 BIGSERIAL PRIMARY KEY,
+    merchant_id        BIGINT         NOT NULL,
+    category_id        BIGINT         NOT NULL,
+    model_name         TEXT           NOT NULL,
+    generated_at       TIMESTAMPTZ    NOT NULL,
+    forecast_horizon   INT            NOT NULL,
+    forecasted_values  JSONB          NOT NULL,
+    mae                FLOAT,
+    CONSTRAINT uq_category_sales_forecast
+        UNIQUE (merchant_id, category_id, model_name, generated_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cat_sales_forecast_lookup
+    ON forecasting.category_sales_forecast (merchant_id, generated_at);
+
