@@ -39,7 +39,7 @@ services:
         CONTROLLER://:9093
 
       KAFKA_ADVERTISED_LISTENERS: >
-        INTERNAL://qb-kafka:9092,
+        INTERNAL://kafka:9092,
         EXTERNAL://localhost:29092
 
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: >
@@ -53,7 +53,6 @@ services:
       KAFKA_LOG_DIRS: /var/lib/kafka/data
 
     ports:
-      - "9092:9092"
       - "29092:29092"
 
 
@@ -75,6 +74,7 @@ services:
         timeout: 3s
         retries: 5
     environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/qb_db
       SPRING_DATASOURCE_USERNAME: qb_user
       SPRING_DATASOURCE_PASSWORD: qb_password
@@ -109,6 +109,7 @@ services:
       consul:
         condition: service_started
     environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/qb_db
       SPRING_DATASOURCE_USERNAME: qb_user
       SPRING_DATASOURCE_PASSWORD: qb_password

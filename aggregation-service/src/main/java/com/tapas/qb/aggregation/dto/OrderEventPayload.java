@@ -7,6 +7,7 @@ import java.util.List;
 public record OrderEventPayload(
         Long eventId,
         Long orderId,
+        String externalOrderId,
         Long merchantId,
         Instant orderDate,
         String currency,

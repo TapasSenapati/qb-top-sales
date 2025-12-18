@@ -9,6 +9,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Component
 public class OrderEventsConsumer {
 
@@ -28,12 +31,14 @@ public class OrderEventsConsumer {
             topics = "order-events",
             containerFactory = "kafkaListenerContainerFactory"
     )
-    public void consume(String payload) throws JsonProcessingException {
+    public void consume(List<String> payloads) throws JsonProcessingException {
         try {
-            OrderEventPayload event =
-                    objectMapper.readValue(payload, OrderEventPayload.class);
+            var events = new ArrayList<OrderEventPayload>();
+            for(String payload: payloads) {
+                events.add(objectMapper.readValue(payload, OrderEventPayload.class));
+            }
 
-            aggregator.aggregate(event);
+            aggregator.aggregate(events);
 
         } catch (Exception e) {
             log.error(" Failed to process event payload", e);

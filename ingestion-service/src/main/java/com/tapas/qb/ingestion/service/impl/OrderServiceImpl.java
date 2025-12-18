@@ -13,6 +13,7 @@ import com.tapas.qb.ingestion.repository.OrderEventRepository;
 import com.tapas.qb.ingestion.repository.OrderItemRepository;
 import com.tapas.qb.ingestion.repository.OrderRepository;
 import com.tapas.qb.ingestion.repository.ProductRepository;
+
 import com.tapas.qb.ingestion.service.OrderService;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -48,6 +50,22 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderCreateResponse createOrder(OrderCreateRequest request) {
+        // Idempotency Check
+        Optional<Order> existingOrderOpt = orderRepository.findByExternalOrderId(request.externalOrderId());
+        if (existingOrderOpt.isPresent()) {
+            Order existingOrder = existingOrderOpt.get();
+            System.out.println("Order with external ID '" + request.externalOrderId() + "' already exists. Skipping creation.");
+            return new OrderCreateResponse(
+                    existingOrder.getId(),
+                    existingOrder.getExternalOrderId(),
+                    existingOrder.getMerchantId(),
+                    existingOrder.getTotalAmount(),
+                    existingOrder.getCurrency(),
+                    orderItemRepository.findByOrderId(existingOrder.getId()).size(),
+                    "SKIPPED_ALREADY_EXISTS"
+            );
+        }
+        
         // 1. Compute totals
         BigDecimal totalAmount = request.items().stream()
                 .map(i -> i.unitPrice().multiply(BigDecimal.valueOf(i.quantity())))
@@ -55,6 +73,7 @@ public class OrderServiceImpl implements OrderService {
 
         // 2. Save order
         Order order = new Order();
+        order.setExternalOrderId(request.externalOrderId());
         order.setMerchantId(request.merchantId());
         order.setOrderDate(request.orderDate());
         order.setCurrency(request.currency());
@@ -107,6 +126,7 @@ public class OrderServiceImpl implements OrderService {
                 new OrderCreatedEventPayload(
                         event.getId(),              // ✅ real outbox id
                         order.getId(),
+                        order.getExternalOrderId(), // Pass externalOrderId
                         request.merchantId(),
                         order.getOrderDate(),
                         request.currency(),
@@ -125,6 +145,7 @@ public class OrderServiceImpl implements OrderService {
         // 8. Return response
         return new OrderCreateResponse(
                 order.getId(),
+                order.getExternalOrderId(),
                 request.merchantId(),
                 totalAmount,
                 request.currency(),
@@ -134,3 +155,4 @@ public class OrderServiceImpl implements OrderService {
     }
 
 }
+

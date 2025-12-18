@@ -12,6 +12,8 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    private String externalOrderId; // New field
+
     private Long merchantId;
 
     private Instant orderDate;
@@ -21,6 +23,13 @@ public class Order {
     private BigDecimal totalAmount;
     // getters/setters
 
+    public String getExternalOrderId() {
+        return externalOrderId;
+    }
+
+    public void setExternalOrderId(String externalOrderId) {
+        this.externalOrderId = externalOrderId;
+    }
 
     public Long getId() {
         return id;

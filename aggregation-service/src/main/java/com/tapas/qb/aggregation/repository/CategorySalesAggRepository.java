@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 public interface CategorySalesAggRepository
-        extends JpaRepository<CategorySalesAgg, Long> {
+        extends JpaRepository<CategorySalesAgg, Long>, CategorySalesAggRepositoryCustom {
 
     @Modifying
     @Query(value = """

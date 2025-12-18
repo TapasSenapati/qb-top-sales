@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS ingestion.orders
     merchant_id  BIGINT         NOT NULL REFERENCES ingestion.merchants (id),
     order_date   TIMESTAMPTZ    NOT NULL,
     currency     TEXT           NOT NULL,
-    total_amount NUMERIC(18, 2) NOT NULL
+    total_amount NUMERIC(18, 2) NOT NULL,
+    external_order_id TEXT UNIQUE
 );
 
 -- ingestion.order_items

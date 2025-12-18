@@ -1,3 +1,4 @@
+import uuid
 import os
 import random
 import time
@@ -48,6 +49,7 @@ def random_order(order_date=None):
         })
 
     return {
+        "externalOrderId": str(uuid.uuid4()), # Add a unique UUID for each order
         "merchantId": merchant_id,
         "orderDate": order_date,
         "currency": currency,
