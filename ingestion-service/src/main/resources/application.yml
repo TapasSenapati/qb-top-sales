@@ -40,3 +40,8 @@ management:
   endpoint:
     health:
       show-details: always
+
+# Outbox publisher configuration
+outbox:
+  batch-size: ${OUTBOX_BATCH_SIZE:100}  # Max events per publish cycle
+  kafka-timeout-seconds: ${OUTBOX_KAFKA_TIMEOUT_SECONDS:10}  # Fail fast if Kafka unresponsive

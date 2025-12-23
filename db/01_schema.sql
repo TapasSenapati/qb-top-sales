@@ -71,6 +71,12 @@ CREATE INDEX IF NOT EXISTS idx_orders_merchant_date
 CREATE INDEX IF NOT EXISTS idx_order_items_order
     ON ingestion.order_items (order_id);
 
+-- Partial index for outbox publisher: speeds up findByProcessedFalse query
+CREATE INDEX IF NOT EXISTS idx_order_events_unprocessed
+    ON ingestion.order_events (created_at)
+    WHERE processed = false;
+
 -- NOTE: Analytics tables (category_sales_agg, processed_events, category_sales_forecast)
--- are now stored in DuckDB for OLAP workloads. See db/03_duckdb_schema.sql
+-- are now stored in DuckDB for OLAP workloads. See forecasting-service/src/duckdb_client.py
+
 
