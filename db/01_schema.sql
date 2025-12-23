@@ -1,6 +1,6 @@
--- Schemas
+-- PostgreSQL Schema for Ingestion (OLTP)
+--Analytics/forecasting data is stored in DuckDB (see db/03_duckdb_schema.sql)
 CREATE SCHEMA IF NOT EXISTS ingestion;
-CREATE SCHEMA IF NOT EXISTS forecasting;
 
 -- ingestion.merchants
 CREATE TABLE IF NOT EXISTS ingestion.merchants
@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS ingestion.order_items
 );
 
 -- ingestion.order_events (outbox)
+-- TODO (Production): Use TSID/Snowflake for globally unique, time-sorted event IDs
+-- when scaling to multiple ingestion instances
 CREATE TABLE IF NOT EXISTS ingestion.order_events
 (
     id           BIGSERIAL PRIMARY KEY,
@@ -62,60 +64,13 @@ CREATE TABLE IF NOT EXISTS ingestion.order_events
     processed_at TIMESTAMPTZ NULL
 );
 
--- forecasting.category_sales_agg
-CREATE TABLE IF NOT EXISTS forecasting.category_sales_agg
-(
-    id                 BIGSERIAL PRIMARY KEY,
-    merchant_id        BIGINT         NOT NULL,
-    category_id        BIGINT         NOT NULL,
-    bucket_type        TEXT           NOT NULL, -- DAY | WEEK | MONTH
-    bucket_start       TIMESTAMPTZ    NOT NULL,
-    bucket_end         TIMESTAMPTZ    NOT NULL,
-    total_sales_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
-    total_units_sold   BIGINT         NOT NULL DEFAULT 0,
-    order_count        BIGINT         NOT NULL DEFAULT 0,
-    updated_at         TIMESTAMPTZ    NOT NULL DEFAULT now(),
-    CONSTRAINT uq_category_sales_bucket
-        UNIQUE (merchant_id, category_id, bucket_type, bucket_start)
-);
-
-CREATE INDEX IF NOT EXISTS idx_cat_sales_merchant_bucket
-    ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start);
-
-CREATE INDEX IF NOT EXISTS idx_cat_sales_top_amount
-    ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start, total_sales_amount DESC);
-
--- Useful indexes
+-- Useful indexes for ingestion schema
 CREATE INDEX IF NOT EXISTS idx_orders_merchant_date
     ON ingestion.orders (merchant_id, order_date);
 
 CREATE INDEX IF NOT EXISTS idx_order_items_order
     ON ingestion.order_items (order_id);
 
-CREATE INDEX IF NOT EXISTS idx_category_sales_agg_lookup
-    ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start);
-
-CREATE TABLE IF NOT EXISTS forecasting.processed_events
-(
-    event_id     BIGINT PRIMARY KEY,
-    processed_at TIMESTAMPTZ NOT NULL
-);
-
--- forecasting.category_sales_forecast
-CREATE TABLE IF NOT EXISTS forecasting.category_sales_forecast
-(
-    id                 BIGSERIAL PRIMARY KEY,
-    merchant_id        BIGINT         NOT NULL,
-    category_id        BIGINT         NOT NULL,
-    model_name         TEXT           NOT NULL,
-    generated_at       TIMESTAMPTZ    NOT NULL,
-    forecast_horizon   INT            NOT NULL,
-    forecasted_values  JSONB          NOT NULL,
-    mae                FLOAT,
-    CONSTRAINT uq_category_sales_forecast
-        UNIQUE (merchant_id, category_id, model_name, generated_at)
-);
-
-CREATE INDEX IF NOT EXISTS idx_cat_sales_forecast_lookup
-    ON forecasting.category_sales_forecast (merchant_id, generated_at);
+-- NOTE: Analytics tables (category_sales_agg, processed_events, category_sales_forecast)
+-- are now stored in DuckDB for OLAP workloads. See db/03_duckdb_schema.sql
 

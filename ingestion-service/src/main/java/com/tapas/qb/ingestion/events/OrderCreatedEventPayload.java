@@ -4,20 +4,21 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Simplified event payload for order-events Kafka topic.
+ * Uses orderId for idempotency in downstream services.
+ * 
+ * TODO (Production): Use TSID/Snowflake for globally unique,
+ * time-sorted IDs when scaling to multiple ingestion instances.
+ */
 public record OrderCreatedEventPayload(
-        Long eventId,
-        Long orderId,
-        String externalOrderId,
-        Long merchantId,
-        Instant orderDate,
-        String currency,
-        List<Item> items
-) {
-    public record Item(
-            Long productId,
-            Long categoryId,
-            Integer quantity,
-            BigDecimal unitPrice,
-            BigDecimal lineAmount
-    ) {}
+                Long orderId, // Used for idempotency downstream
+                Long merchantId,
+                Instant orderDate,
+                List<Item> items) {
+        public record Item(
+                        Long categoryId,
+                        Integer quantity,
+                        BigDecimal lineAmount) {
+        }
 }

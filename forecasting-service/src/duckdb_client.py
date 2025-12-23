@@ -100,10 +100,10 @@ class DuckDBClient:
                 )
             """)
             
-            # Create processed_events table
+            # Create processed_events table (tracks processed orders for idempotency)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS processed_events (
-                    event_id BIGINT PRIMARY KEY,
+                    order_id BIGINT PRIMARY KEY,
                     processed_at TIMESTAMPTZ NOT NULL
                 )
             """)

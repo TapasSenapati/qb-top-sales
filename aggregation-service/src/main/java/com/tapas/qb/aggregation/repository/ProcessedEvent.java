@@ -1,30 +1,26 @@
 package com.tapas.qb.aggregation.repository;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-
 import java.time.Instant;
 
-@Entity
-@Table(name = "processed_events", schema = "forecasting")
+/**
+ * Record for tracking processed orders in DuckDB.
+ * Uses orderId for idempotency (not JPA entity, just a data holder).
+ */
 public class ProcessedEvent {
 
-    @Id
-    private Long eventId;
-
+    private Long orderId;
     private Instant processedAt;
 
     protected ProcessedEvent() {
     }
 
-    public ProcessedEvent(Long eventId, Instant processedAt) {
-        this.eventId = eventId;
+    public ProcessedEvent(Long orderId, Instant processedAt) {
+        this.orderId = orderId;
         this.processedAt = processedAt;
     }
 
-    public Long getEventId() {
-        return eventId;
+    public Long getOrderId() {
+        return orderId;
     }
 
     public Instant getProcessedAt() {

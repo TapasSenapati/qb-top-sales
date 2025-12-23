@@ -31,4 +31,3 @@ public class OrderEvent {
     private Instant processedAt;
 
 }
-

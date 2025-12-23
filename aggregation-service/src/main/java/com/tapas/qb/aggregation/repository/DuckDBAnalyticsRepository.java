@@ -8,6 +8,8 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -102,48 +104,45 @@ public class DuckDBAnalyticsRepository {
     }
 
     /**
-     * Save processed events to DuckDB for idempotency tracking.
+     * Save processed orders to DuckDB for idempotency tracking.
      */
-    public void saveProcessedEvents(Collection<ProcessedEvent> events) {
+    public void saveProcessedOrders(Collection<ProcessedEvent> events) {
         if (events == null || events.isEmpty()) {
             return;
         }
 
         String sql = """
-                INSERT INTO processed_events (event_id, processed_at)
+                INSERT INTO processed_events (order_id, processed_at)
                 VALUES (?, ?)
                 ON CONFLICT DO NOTHING
                 """;
 
         for (ProcessedEvent event : events) {
             try {
-                duckdbJdbcTemplate.update(sql, event.getEventId(), Timestamp.from(event.getProcessedAt()));
+                duckdbJdbcTemplate.update(sql, event.getOrderId(), Timestamp.from(event.getProcessedAt()));
             } catch (Exception e) {
-                // Event might already exist (idempotency), ignore
-                logger.debug("Event {} already processed or error: {}", event.getEventId(), e.getMessage());
+                // Order might already exist (idempotency), ignore
+                logger.debug("Order {} already processed or error: {}", event.getOrderId(), e.getMessage());
             }
         }
     }
 
     /**
-     * Find which event IDs have already been processed.
+     * Find which order IDs have already been processed.
      */
-    public Set<Long> findExistingEventIds(Collection<Long> eventIds) {
-        if (eventIds == null || eventIds.isEmpty()) {
+    public Set<Long> findExistingOrderIds(Collection<Long> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
             return Set.of();
         }
 
-        String placeholders = eventIds.stream()
+        String placeholders = orderIds.stream()
                 .map(id -> "?")
                 .collect(Collectors.joining(","));
 
-        String sql = "SELECT event_id FROM processed_events WHERE event_id IN (" + placeholders + ")";
+        String sql = "SELECT order_id FROM processed_events WHERE order_id IN (" + placeholders + ")";
 
-        return duckdbJdbcTemplate.query(sql,
-                eventIds.toArray(),
-                (rs, rowNum) -> rs.getLong(1))
-                .stream()
-                .collect(Collectors.toSet());
+        List<Long> result = duckdbJdbcTemplate.queryForList(sql, Long.class, orderIds.toArray());
+        return new HashSet<>(result);
     }
 
     /**
