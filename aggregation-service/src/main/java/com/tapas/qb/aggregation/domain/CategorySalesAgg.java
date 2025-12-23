@@ -1,23 +1,21 @@
 package com.tapas.qb.aggregation.domain;
 
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 
+@Getter
+@Setter
 @Entity
-@Table(
-        name = "category_sales_agg",
-        schema = "forecasting",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uq_category_sales_bucket",
-                columnNames = {
-                        "merchant_id",
-                        "category_id",
-                        "bucket_type",
-                        "bucket_start"
-                }
-        )
-)
+@Table(name = "category_sales_agg", schema = "forecasting", uniqueConstraints = @UniqueConstraint(name = "uq_category_sales_bucket", columnNames = {
+        "merchant_id",
+        "category_id",
+        "bucket_type",
+        "bucket_start"
+}))
 public class CategorySalesAgg {
 
     @Id
@@ -50,82 +48,4 @@ public class CategorySalesAgg {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
-
-    /* getters & setters only — no logic */
-
-    public Long getId() {
-        return id;
-    }
-
-    public Long getMerchantId() {
-        return merchantId;
-    }
-
-    public void setMerchantId(Long merchantId) {
-        this.merchantId = merchantId;
-    }
-
-    public Long getCategoryId() {
-        return categoryId;
-    }
-
-    public void setCategoryId(Long categoryId) {
-        this.categoryId = categoryId;
-    }
-
-    public String getBucketType() {
-        return bucketType;
-    }
-
-    public void setBucketType(String bucketType) {
-        this.bucketType = bucketType;
-    }
-
-    public Instant getBucketStart() {
-        return bucketStart;
-    }
-
-    public void setBucketStart(Instant bucketStart) {
-        this.bucketStart = bucketStart;
-    }
-
-    public Instant getBucketEnd() {
-        return bucketEnd;
-    }
-
-    public void setBucketEnd(Instant bucketEnd) {
-        this.bucketEnd = bucketEnd;
-    }
-
-    public BigDecimal getTotalSalesAmount() {
-        return totalSalesAmount;
-    }
-
-    public void setTotalSalesAmount(BigDecimal totalSalesAmount) {
-        this.totalSalesAmount = totalSalesAmount;
-    }
-
-    public Long getTotalUnitsSold() {
-        return totalUnitsSold;
-    }
-
-    public void setTotalUnitsSold(Long totalUnitsSold) {
-        this.totalUnitsSold = totalUnitsSold;
-    }
-
-    public Long getOrderCount() {
-        return orderCount;
-    }
-
-    public void setOrderCount(Long orderCount) {
-        this.orderCount = orderCount;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(Instant updatedAt) {
-        this.updatedAt = updatedAt;
-    }
 }

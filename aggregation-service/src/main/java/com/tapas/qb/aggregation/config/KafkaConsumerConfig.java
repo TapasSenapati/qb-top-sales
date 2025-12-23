@@ -14,7 +14,7 @@ public class KafkaConsumerConfig {
     public ConsumerFactory<String, String> consumerFactory(
             KafkaProperties kafkaProperties) {
         return new DefaultKafkaConsumerFactory<>(
-                kafkaProperties.buildConsumerProperties());
+                kafkaProperties.buildConsumerProperties(null));
     }
 
     @Bean

@@ -1,9 +1,13 @@
 package com.tapas.qb.ingestion.domain;
 
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.math.BigDecimal;
 
+@Getter
+@Setter
 @Entity
 @Table(name = "order_items", schema = "ingestion")
 public class OrderItem {
@@ -20,53 +24,4 @@ public class OrderItem {
     private BigDecimal unitPrice;
 
     private BigDecimal lineAmount;
-    // getters/setters
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public Long getOrderId() {
-        return orderId;
-    }
-
-    public void setOrderId(Long orderId) {
-        this.orderId = orderId;
-    }
-
-    public Long getProductId() {
-        return productId;
-    }
-
-    public void setProductId(Long productId) {
-        this.productId = productId;
-    }
-
-    public Integer getQuantity() {
-        return quantity;
-    }
-
-    public void setQuantity(Integer quantity) {
-        this.quantity = quantity;
-    }
-
-    public BigDecimal getUnitPrice() {
-        return unitPrice;
-    }
-
-    public void setUnitPrice(BigDecimal unitPrice) {
-        this.unitPrice = unitPrice;
-    }
-
-    public BigDecimal getLineAmount() {
-        return lineAmount;
-    }
-
-    public void setLineAmount(BigDecimal lineAmount) {
-        this.lineAmount = lineAmount;
-    }
 }

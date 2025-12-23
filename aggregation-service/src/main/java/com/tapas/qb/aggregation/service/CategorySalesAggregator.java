@@ -1,7 +1,6 @@
 package com.tapas.qb.aggregation.service;
 
 import com.tapas.qb.aggregation.dto.OrderEventPayload;
-import com.tapas.qb.aggregation.repository.CategorySalesAggRepository;
 import com.tapas.qb.aggregation.repository.DuckDBAnalyticsRepository;
 import com.tapas.qb.aggregation.repository.ProcessedEvent;
 import com.tapas.qb.aggregation.repository.UpsertData;
@@ -19,17 +18,22 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Aggregates order events into time-bucketed sales summaries (DAY, WEEK,
+ * MONTH).
+ * 
+ * CURRENCY ASSUMPTION (demo): Each merchant uses a single base currency.
+ * Amounts are summed directly without conversion. Production would require:
+ * - Exchange rate table or external API
+ * - Normalize amounts to base currency at ingestion or aggregation
+ */
 @Service
 public class CategorySalesAggregator {
         private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(CategorySalesAggregator.class);
 
-        private final CategorySalesAggRepository aggRepo;
         private final DuckDBAnalyticsRepository duckDBRepo;
 
-        public CategorySalesAggregator(
-                        CategorySalesAggRepository aggRepo,
-                        DuckDBAnalyticsRepository duckDBRepo) {
-                this.aggRepo = aggRepo;
+        public CategorySalesAggregator(DuckDBAnalyticsRepository duckDBRepo) {
                 this.duckDBRepo = duckDBRepo;
         }
 

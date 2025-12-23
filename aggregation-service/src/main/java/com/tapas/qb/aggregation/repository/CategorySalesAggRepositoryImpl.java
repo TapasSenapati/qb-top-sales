@@ -3,8 +3,6 @@ package com.tapas.qb.aggregation.repository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.Collection;
 
@@ -24,17 +22,17 @@ public class CategorySalesAggRepositoryImpl implements CategorySalesAggRepositor
         }
 
         String sql = """
-            INSERT INTO forecasting.category_sales_agg
-            (merchant_id, category_id, bucket_type, bucket_start, bucket_end,
-             total_sales_amount, total_units_sold, order_count, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())
-            ON CONFLICT (merchant_id, category_id, bucket_type, bucket_start)
-            DO UPDATE SET
-                total_sales_amount = category_sales_agg.total_sales_amount + EXCLUDED.total_sales_amount,
-                total_units_sold   = category_sales_agg.total_units_sold + EXCLUDED.total_units_sold,
-                order_count        = category_sales_agg.order_count + EXCLUDED.order_count,
-                updated_at         = now()
-            """;
+                INSERT INTO forecasting.category_sales_agg
+                (merchant_id, category_id, bucket_type, bucket_start, bucket_end,
+                 total_sales_amount, total_units_sold, order_count, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())
+                ON CONFLICT (merchant_id, category_id, bucket_type, bucket_start)
+                DO UPDATE SET
+                    total_sales_amount = category_sales_agg.total_sales_amount + EXCLUDED.total_sales_amount,
+                    total_units_sold   = category_sales_agg.total_units_sold + EXCLUDED.total_units_sold,
+                    order_count        = category_sales_agg.order_count + EXCLUDED.order_count,
+                    updated_at         = now()
+                """;
 
         jdbcTemplate.batchUpdate(sql, data, data.size(), (ps, item) -> {
             ps.setLong(1, item.merchantId());

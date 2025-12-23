@@ -28,12 +28,16 @@ CREATE TABLE IF NOT EXISTS ingestion.products
 );
 
 -- ingestion.orders
+-- CURRENCY ASSUMPTION (demo): Each merchant uses a single base currency.
+-- No currency conversion is implemented in aggregation/forecasting.
+-- Production: Normalize amounts to base currency at ingestion or aggregation
+-- using exchange rate table or external API.
 CREATE TABLE IF NOT EXISTS ingestion.orders
 (
     id           BIGSERIAL PRIMARY KEY,
     merchant_id  BIGINT         NOT NULL REFERENCES ingestion.merchants (id),
     order_date   TIMESTAMPTZ    NOT NULL,
-    currency     TEXT           NOT NULL,
+    currency     TEXT           NOT NULL,  -- Merchant's base currency (no conversion)
     total_amount NUMERIC(18, 2) NOT NULL,
     external_order_id TEXT UNIQUE
 );
@@ -75,8 +79,5 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order
 CREATE INDEX IF NOT EXISTS idx_order_events_unprocessed
     ON ingestion.order_events (created_at)
     WHERE processed = false;
-
--- NOTE: Analytics tables (category_sales_agg, processed_events, category_sales_forecast)
--- are now stored in DuckDB for OLAP workloads. See forecasting-service/src/duckdb_client.py
 
 

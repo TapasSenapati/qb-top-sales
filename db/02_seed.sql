@@ -25,6 +25,8 @@ VALUES (101, 1, 1, 'Smartphone X'),
 -- into category_sales_agg entries once events are processed.
 
 -- Note: IDs are fixed for idempotency; ON CONFLICT ensures re-runs are safe.
+-- Each merchant has a single base currency (no conversion needed for demo):
+--   Merchant 1 = USD, Merchant 2 = EUR, Merchant 3 = INR
 INSERT INTO ingestion.orders (id, merchant_id, order_date, currency, total_amount)
 VALUES
     -- Last 7 days of orders for Merchant 1
