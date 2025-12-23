@@ -2,6 +2,7 @@ package com.tapas.qb.aggregation.service;
 
 import com.tapas.qb.aggregation.dto.OrderEventPayload;
 import com.tapas.qb.aggregation.repository.CategorySalesAggRepository;
+import com.tapas.qb.aggregation.repository.DuckDBAnalyticsRepository;
 import com.tapas.qb.aggregation.repository.ProcessedEvent;
 import com.tapas.qb.aggregation.repository.ProcessedEventRepository;
 import com.tapas.qb.aggregation.repository.UpsertData;
@@ -22,12 +23,19 @@ import java.util.Map;
 
 @Service
 public class CategorySalesAggregator {
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(CategorySalesAggregator.class);
+
     private final CategorySalesAggRepository aggRepo;
     private final ProcessedEventRepository processedRepo;
+    private final DuckDBAnalyticsRepository duckDBRepo;
 
-    public CategorySalesAggregator(CategorySalesAggRepository aggRepo, ProcessedEventRepository processedRepo) {
+    public CategorySalesAggregator(
+            CategorySalesAggRepository aggRepo,
+            ProcessedEventRepository processedRepo,
+            DuckDBAnalyticsRepository duckDBRepo) {
         this.aggRepo = aggRepo;
         this.processedRepo = processedRepo;
+        this.duckDBRepo = duckDBRepo;
     }
 
     @Transactional
@@ -37,7 +45,8 @@ public class CategorySalesAggregator {
                 .map(OrderEventPayload::eventId)
                 .toList();
 
-        var existingEventIds = processedRepo.findExisting(eventIds);
+        // Check idempotency against DuckDB
+        var existingEventIds = duckDBRepo.findExistingEventIds(eventIds);
 
         var unprocessedEvents = events.stream()
                 .filter(e -> !existingEventIds.contains(e.eventId()))
@@ -47,15 +56,15 @@ public class CategorySalesAggregator {
             return; // all events were already processed
         }
 
+        // Save processed events to DuckDB for idempotency
         var processedEvents = unprocessedEvents.stream()
                 .map(e -> new ProcessedEvent(e.eventId(), Instant.now()))
                 .toList();
-        processedRepo.saveAll(processedEvents);
-        
+        duckDBRepo.saveProcessedEvents(processedEvents);
+
         var dayAggregates = new HashMap<AggregationKey, Aggregation>();
         var weekAggregates = new HashMap<AggregationKey, Aggregation>();
         var monthAggregates = new HashMap<AggregationKey, Aggregation>();
-
 
         for (OrderEventPayload event : unprocessedEvents) {
             for (OrderEventPayload.Item item : event.items()) {
@@ -76,21 +85,23 @@ public class CategorySalesAggregator {
             }
         }
 
-        // Bulk upsert
-        aggRepo.bulkUpsert("DAY", toUpsertData(dayAggregates, ChronoUnit.DAYS));
-        aggRepo.bulkUpsert("WEEK", toUpsertData(weekAggregates, 7, ChronoUnit.DAYS));
-        aggRepo.bulkUpsert("MONTH", toUpsertData(monthAggregates, 1, ChronoUnit.MONTHS));
+        // Bulk upsert to DuckDB (analytics database)
+        logger.info("Writing aggregates to DuckDB: {} day, {} week, {} month records",
+                dayAggregates.size(), weekAggregates.size(), monthAggregates.size());
+
+        duckDBRepo.bulkUpsert("DAY", toUpsertData(dayAggregates, ChronoUnit.DAYS));
+        duckDBRepo.bulkUpsert("WEEK", toUpsertData(weekAggregates, 7, ChronoUnit.DAYS));
+        duckDBRepo.bulkUpsert("MONTH", toUpsertData(monthAggregates, 1, ChronoUnit.MONTHS));
     }
 
-
     private List<UpsertData> toUpsertData(Map<AggregationKey, Aggregation> aggregates,
-                                          ChronoUnit bucketSizeUnit) {
+            ChronoUnit bucketSizeUnit) {
         return toUpsertData(aggregates, 1, bucketSizeUnit);
     }
 
     private List<UpsertData> toUpsertData(Map<AggregationKey, Aggregation> aggregates,
-                                          long bucketSize,
-                                          ChronoUnit bucketSizeUnit) {
+            long bucketSize,
+            ChronoUnit bucketSizeUnit) {
 
         return aggregates.entrySet().stream()
                 .map(entry -> {
@@ -107,12 +118,10 @@ public class CategorySalesAggregator {
                             bucketEnd,
                             agg.totalAmount,
                             agg.totalQuantity,
-                            agg.orderCount
-                    );
+                            agg.orderCount);
                 })
                 .toList();
     }
-
 
     private record AggregationKey(Long merchantId, Long categoryId, Instant bucketStart) {
     }
@@ -129,7 +138,6 @@ public class CategorySalesAggregator {
         }
     }
 
-
     @Transactional
     @Deprecated
     public void aggregate(OrderEventPayload event) {
@@ -139,8 +147,7 @@ public class CategorySalesAggregator {
             return; // already processed → no-op
         }
         processedRepo.save(
-                new ProcessedEvent(event.eventId(), Instant.now())
-        );
+                new ProcessedEvent(event.eventId(), Instant.now()));
 
         Instant dayStart = event.orderDate()
                 .truncatedTo(ChronoUnit.DAYS);
@@ -162,24 +169,21 @@ public class CategorySalesAggregator {
                     dayStart,
                     dayEnd,
                     item.lineAmount(),
-                    (long) item.quantity()
-            );
+                    (long) item.quantity());
             aggRepo.upsertWeekAggregate(
                     event.merchantId(),
                     item.categoryId(),
                     weekStart,
                     weekEnd,
                     item.lineAmount(),
-                    (long) item.quantity()
-            );
+                    (long) item.quantity());
             aggRepo.upsertMonthAggregate(
                     event.merchantId(),
                     item.categoryId(),
                     monthStart,
                     monthEnd,
                     item.lineAmount(),
-                    (long) item.quantity()
-            );
+                    (long) item.quantity());
         }
     }
 

@@ -15,10 +15,19 @@ public class ProcessedEvent {
 
     private Instant processedAt;
 
-    protected ProcessedEvent() {}
+    protected ProcessedEvent() {
+    }
 
     public ProcessedEvent(Long eventId, Instant processedAt) {
         this.eventId = eventId;
         this.processedAt = processedAt;
+    }
+
+    public Long getEventId() {
+        return eventId;
+    }
+
+    public Instant getProcessedAt() {
+        return processedAt;
     }
 }

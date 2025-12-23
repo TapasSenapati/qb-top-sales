@@ -14,16 +14,14 @@ public class KafkaConsumerConfig {
     public ConsumerFactory<String, String> consumerFactory(
             KafkaProperties kafkaProperties) {
         return new DefaultKafkaConsumerFactory<>(
-                kafkaProperties.buildConsumerProperties()
-        );
+                kafkaProperties.buildConsumerProperties());
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, String>
-    kafkaListenerContainerFactory(ConsumerFactory<String, String> consumerFactory) {
+    public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
+            ConsumerFactory<String, String> consumerFactory) {
 
-        ConcurrentKafkaListenerContainerFactory<String, String> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
+        ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
 
         factory.setConsumerFactory(consumerFactory);
         factory.setConcurrency(1); // keep deterministic for now

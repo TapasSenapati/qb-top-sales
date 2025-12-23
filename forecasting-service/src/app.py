@@ -12,6 +12,7 @@ from . import db
 from .service import ForecastingService, CategoryForecastResult, compute_confidence # Import compute_confidence
 from .consul_registration import register_service, deregister_service
 from .evaluate_models import evaluate_models
+from .duckdb_client import get_duckdb_client
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,15 @@ class ForecastResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize DuckDB schema on startup
+    try:
+        duckdb_client = get_duckdb_client()
+        duckdb_client.init_schema()
+        logger.info("DuckDB initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize DuckDB: {e}")
+        # Continue startup - DuckDB might be optional during transition
+    
     register_service()
     yield
     deregister_service()
@@ -66,6 +76,13 @@ async def root():
 @app.get("/health", tags=["health"], summary="Service health")
 def health():
     return {"status": "UP"}
+
+
+@app.get("/health/duckdb", tags=["health"], summary="DuckDB health")
+def duckdb_health():
+    """Check DuckDB connection and table status."""
+    client = get_duckdb_client()
+    return client.health_check()
 
 
 @app.get(
