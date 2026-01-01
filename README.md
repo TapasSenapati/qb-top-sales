@@ -3,16 +3,13 @@
 Qb craft project
 
 ```
-docker compose down -v
-docker builder prune -af
-docker system prune -af
-docker volume rm qb-top-sales_qb-postgres-data
-systemctl restart docker
-docker ps -> verify emptyS
+# Stop and remove containers + volumes (will reset DB)
+docker-compose down -v
+# Rebuild all services with new code
+docker-compose build --no-cache
+# Start everything fresh
+docker-compose up -d
 
-mvn clean package -DskipTests
-docker compose build
-docker compose up -d
 ```
 
 ## Swagger api docs url

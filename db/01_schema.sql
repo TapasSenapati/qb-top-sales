@@ -1,21 +1,42 @@
 -- PostgreSQL Schema for Ingestion (OLTP)
---Analytics/forecasting data is stored in DuckDB (see db/03_duckdb_schema.sql)
+-- Analytics/forecasting data is stored in DuckDB (see db/03_duckdb_schema.duckdb)
+-- but category_sales_agg is also in Postgres for JPA queries that join with ingestion tables
 CREATE SCHEMA IF NOT EXISTS ingestion;
+CREATE SCHEMA IF NOT EXISTS forecasting;
 
--- ingestion.merchants
-CREATE TABLE IF NOT EXISTS ingestion.merchants
-(
-    id   BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL
+-- forecasting.category_sales_agg (for JPA queries joining with ingestion tables)
+CREATE TABLE IF NOT EXISTS forecasting.category_sales_agg (
+    id                 BIGSERIAL PRIMARY KEY,
+    merchant_id        BIGINT NOT NULL,
+    category_id        BIGINT NOT NULL,
+    bucket_type        VARCHAR(10) NOT NULL,  -- DAY | WEEK | MONTH
+    bucket_start       TIMESTAMPTZ NOT NULL,
+    bucket_end         TIMESTAMPTZ NOT NULL,
+    total_sales_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+    total_units_sold   BIGINT NOT NULL DEFAULT 0,
+    order_count        BIGINT NOT NULL DEFAULT 0,
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_category_sales_bucket UNIQUE (merchant_id, category_id, bucket_type, bucket_start)
 );
 
--- ingestion.categories
+CREATE INDEX IF NOT EXISTS idx_cat_sales_merchant_bucket
+    ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start);
+
+-- ingestion.merchants
+-- Each merchant operates in a single base currency (no multi-currency orders)
+CREATE TABLE IF NOT EXISTS ingestion.merchants
+(
+    id       BIGSERIAL PRIMARY KEY,
+    name     TEXT NOT NULL,
+    currency TEXT NOT NULL  -- Merchant's base currency (e.g., USD, EUR, INR)
+);
+
+-- ingestion.categories (flat structure - no hierarchy)
 CREATE TABLE IF NOT EXISTS ingestion.categories
 (
-    id                 BIGSERIAL PRIMARY KEY,
-    merchant_id        BIGINT NOT NULL REFERENCES ingestion.merchants (id),
-    name               TEXT   NOT NULL,
-    parent_category_id BIGINT NULL REFERENCES ingestion.categories (id)
+    id          BIGSERIAL PRIMARY KEY,
+    merchant_id BIGINT NOT NULL REFERENCES ingestion.merchants (id),
+    name        TEXT   NOT NULL
 );
 
 -- ingestion.products
@@ -28,16 +49,12 @@ CREATE TABLE IF NOT EXISTS ingestion.products
 );
 
 -- ingestion.orders
--- CURRENCY ASSUMPTION (demo): Each merchant uses a single base currency.
--- No currency conversion is implemented in aggregation/forecasting.
--- Production: Normalize amounts to base currency at ingestion or aggregation
--- using exchange rate table or external API.
+-- Currency is derived from merchant (single currency per merchant enforced at schema level)
 CREATE TABLE IF NOT EXISTS ingestion.orders
 (
     id           BIGSERIAL PRIMARY KEY,
     merchant_id  BIGINT         NOT NULL REFERENCES ingestion.merchants (id),
     order_date   TIMESTAMPTZ    NOT NULL,
-    currency     TEXT           NOT NULL,  -- Merchant's base currency (no conversion)
     total_amount NUMERIC(18, 2) NOT NULL,
     external_order_id TEXT UNIQUE
 );

@@ -28,6 +28,10 @@
 - Time semantics: production supports calendar-aligned week/month/year with a configurable merchant timezone + "week starts on X" policy (default can be UTC/Monday).
     
 - Consistency model: eventual consistency is acceptable between order creation and aggregate/forecast availability, but the system must converge.
+
+- Flat categories: categories are non-hierarchical (no parent-child relationships). If hierarchical categories are needed in production (e.g., "Smartphones → Phones → Electronics"), add `parent_category_id` with recursive queries for roll-up reporting.
+
+- Single currency per merchant: each merchant operates in a single base currency (e.g., USD, EUR, INR). Currency is stored on the merchant, not per-order. No currency conversion is implemented. Production multi-currency support would require exchange rate tables and normalization at ingestion or aggregation time.
     
 
 ## Architecture
@@ -40,8 +44,10 @@
     
 - **Outbox Relay (in ingestion service)**: scheduled publisher reads `ingestion.order_events` and publishes to Kafka topic `order-events`.
     
-- **Aggregation Service**: consumes `order-events`, dedupes using `orderId` in DuckDB `processed_events`, and upserts bucketed totals into DuckDB `category_sales_agg`; also exposes `/api/top-categories`.
-    
+- **Aggregation Service**: consumes `order-events`, dedupes using `orderId` in DuckDB `processed_events`, and upserts bucketed totals using **dual-write pattern**:
+  - **Postgres** `forecasting.category_sales_agg`: for real-time API queries via `/api/top-categories`
+  - **DuckDB** `category_sales_agg`: for batch forecasting worker
+  
 - **Forecasting Service (FastAPI)**: serves UI + endpoints like `/forecast/top-categories` and `/forecast/compare-models`. Reads from DuckDB for analytics, PostgreSQL for category names.
     
 - **Forecasting Worker**: periodic scheduler to precompute forecasts for merchants and store them in DuckDB `category_sales_forecast`.
@@ -180,11 +186,12 @@
 
 - `ingestion.merchants`
     - **PK**: `id` (BIGSERIAL).
+    - `currency` (TEXT NOT NULL): merchant's base currency (single currency per merchant).
         
 - `ingestion.categories`
     - **PK**: `id` (BIGSERIAL).
     - **FK**: `merchant_id -> ingestion.merchants(id)`.
-    - **FK (self)**: `parent_category_id -> ingestion.categories(id)` (nullable).
+    - Flat structure (no hierarchy).
         
 - `ingestion.products`
     - **PK**: `id` (BIGSERIAL).
@@ -195,6 +202,7 @@
     - **PK**: `id` (BIGSERIAL).
     - **FK**: `merchant_id -> ingestion.merchants(id)`.
     - **UNIQUE**: `external_order_id` (for API idempotency).
+    - Currency is derived from merchant (not stored per-order).
         
 - `ingestion.order_items`
     - **PK**: `id` (BIGSERIAL).
@@ -241,7 +249,7 @@
     
 - **Events**: outbox publisher periodically reads unprocessed events and publishes to Kafka `order-events`.
     
-- **Aggregates**: aggregation service consumes `order-events`, dedupes via DuckDB `processed_events` using `orderId`, and upserts bucketed totals into DuckDB `category_sales_agg`; the UI can query `/api/top-categories`.
+- **Aggregates**: aggregation service consumes `order-events`, dedupes via DuckDB `processed_events` using `orderId`, and uses **dual-write** to upsert bucketed totals into both PostgreSQL `forecasting.category_sales_agg` (for low-latency API reads) and DuckDB (for forecasting batch jobs); the UI can query `/api/top-categories` from Postgres.
     
 - **Forecasts**: forecasting worker periodically fetches series from DuckDB and writes results to DuckDB `category_sales_forecast`; forecasting API serves UI/API endpoints.
     

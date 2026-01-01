@@ -29,7 +29,7 @@ def run_forecast_job():
             logger.info("No merchants found in aggregation table. Job will sleep.")
             return
 
-        for merchant_id, in merchants:
+        for merchant_id in merchants:
             logger.info(f"Processing forecasts for merchant_id: {merchant_id}")
 
             # 2. For each merchant, get the daily time series data

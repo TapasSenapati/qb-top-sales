@@ -1,12 +1,16 @@
 -- DuckDB Schema for Forecasting Analytics
 -- This schema is used to initialize DuckDB tables for analytics/OLAP workloads
 
+-- Sequences for auto-increment IDs
+CREATE SEQUENCE IF NOT EXISTS category_sales_agg_id_seq START 1;
+CREATE SEQUENCE IF NOT EXISTS category_sales_forecast_id_seq START 1;
+
 -- category_sales_agg: Aggregated sales by merchant, category, and time bucket
 CREATE TABLE IF NOT EXISTS category_sales_agg (
     id                 BIGINT PRIMARY KEY,
     merchant_id        BIGINT NOT NULL,
     category_id        BIGINT NOT NULL,
-    bucket_type        VARCHAR NOT NULL,  -- DAY | WEEK | MONTH
+    bucket_type        VARCHAR NOT NULL,
     bucket_start       TIMESTAMP WITH TIME ZONE NOT NULL,
     bucket_end         TIMESTAMP WITH TIME ZONE NOT NULL,
     total_sales_amount DECIMAL(18, 2) NOT NULL DEFAULT 0,
@@ -25,7 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_cat_sales_merchant_bucket
 
 -- processed_events: Idempotency tracking for Kafka consumer
 CREATE TABLE IF NOT EXISTS processed_events (
-    event_id     BIGINT PRIMARY KEY,
+    order_id     BIGINT PRIMARY KEY,
     processed_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 
@@ -37,7 +41,7 @@ CREATE TABLE IF NOT EXISTS category_sales_forecast (
     model_name         VARCHAR NOT NULL,
     generated_at       TIMESTAMP WITH TIME ZONE NOT NULL,
     forecast_horizon   INTEGER NOT NULL,
-    forecasted_values  VARCHAR NOT NULL,  -- JSON stored as string in DuckDB
+    forecasted_values  VARCHAR NOT NULL,
     mae                DOUBLE
 );
 
@@ -48,7 +52,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_category_sales_forecast
 -- Query optimization index
 CREATE INDEX IF NOT EXISTS idx_cat_sales_forecast_lookup
     ON category_sales_forecast (merchant_id, generated_at);
-
--- Sequences for auto-increment IDs
-CREATE SEQUENCE IF NOT EXISTS category_sales_agg_id_seq START 1;
-CREATE SEQUENCE IF NOT EXISTS category_sales_forecast_id_seq START 1;

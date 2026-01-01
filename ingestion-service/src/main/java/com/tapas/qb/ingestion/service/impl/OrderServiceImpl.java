@@ -77,7 +77,6 @@ public class OrderServiceImpl implements OrderService {
                                         existingOrder.getExternalOrderId(),
                                         existingOrder.getMerchantId(),
                                         existingOrder.getTotalAmount(),
-                                        existingOrder.getCurrency(),
                                         orderItemRepository.findByOrderId(existingOrder.getId()).size(),
                                         "SKIPPED_ALREADY_EXISTS");
                 }
@@ -92,7 +91,6 @@ public class OrderServiceImpl implements OrderService {
                 order.setExternalOrderId(request.externalOrderId());
                 order.setMerchantId(request.merchantId());
                 order.setOrderDate(request.orderDate());
-                order.setCurrency(request.currency());
                 order.setTotalAmount(totalAmount);
                 order = orderRepository.save(order);
 
@@ -151,7 +149,6 @@ public class OrderServiceImpl implements OrderService {
                                 order.getExternalOrderId(),
                                 request.merchantId(),
                                 totalAmount,
-                                request.currency(),
                                 request.items().size(),
                                 "CREATED");
         }

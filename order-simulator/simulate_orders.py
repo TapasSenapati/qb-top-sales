@@ -21,8 +21,6 @@ MERCHANT_PRODUCTS = {
     3: [105],
 }
 
-CURRENCIES = ["USD", "EUR", "INR"]
-
 
 def random_order(order_date=None):
     merchant_id = random.choice(list(MERCHANT_PRODUCTS.keys()))
@@ -32,7 +30,6 @@ def random_order(order_date=None):
         order_date = datetime.now(timezone.utc)
     
     order_date = order_date.isoformat()
-    currency = random.choice(CURRENCIES)
 
     num_items = random.randint(1, min(4, len(product_ids)))
     items = []
@@ -52,7 +49,6 @@ def random_order(order_date=None):
         "externalOrderId": str(uuid.uuid4()), # Add a unique UUID for each order
         "merchantId": merchant_id,
         "orderDate": order_date,
-        "currency": currency,
         "items": items,
     }
 

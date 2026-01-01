@@ -22,7 +22,5 @@ public class Order {
 
     private Instant orderDate;
 
-    private String currency;
-
     private BigDecimal totalAmount;
 }
