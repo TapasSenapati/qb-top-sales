@@ -19,49 +19,30 @@ import java.util.List;
 @RequestMapping("/api")
 public class TopCategoryController {
 
-    private final TopCategoryQueryService service;
+        private final TopCategoryQueryService service;
 
-    public TopCategoryController(TopCategoryQueryService service) {
-        this.service = service;
-    }
+        public TopCategoryController(TopCategoryQueryService service) {
+                this.service = service;
+        }
 
-    @Operation(
-            summary = "Top categories by sales",
-            description = "Returns the top categories for a merchant in a given bucket starting at bucketStart.",
-            responses = {
-                    @ApiResponse(
-                            responseCode = "200",
-                            description = "Successful response",
-                            content = @Content(
-                                    mediaType = "application/json",
-                                    schema = @Schema(implementation = TopCategoryResponse.class),
-                                    examples = @ExampleObject(
-                                            name = "topCategoriesExample",
-                                            value = "[{\n  \"categoryId\": 101,\n  \"categoryName\": \"Beverages\",\n  \"totalSalesAmount\": 12345.67,\n  \"totalUnitsSold\": 321,\n  \"orderCount\": 45\n}, {\n  \"categoryId\": 102,\n  \"categoryName\": \"Snacks\",\n  \"totalSalesAmount\": 9876.54,\n  \"totalUnitsSold\": 210,\n  \"orderCount\": 30\n}]"
-                                    )
-                            )
-                    )
-            }
-    )
-    @GetMapping("/top-categories")
-    public List<TopCategoryResponse> topCategories(
-            @Parameter(description = "Merchant identifier", example = "1")
-            @RequestParam Long merchantId,
-            @Parameter(description = "Aggregation bucket type", example = "DAY")
-            @RequestParam String bucketType,
-            @Parameter(description = "Start of the bucket (ISO-8601)", example = "2024-01-01T00:00:00Z")
-            @RequestParam Instant bucketStart,
-            @Parameter(description = "Max number of categories to return", example = "5")
-            @RequestParam(defaultValue = "5") int limit
-    ) {
-        return service.topCategories(
-                        merchantId,
-                        bucketType,
-                        bucketStart,
-                        limit
-                )
-                .stream()
-                .map(TopCategoryResponse::from)
-                .toList();
-    }
+        @Operation(summary = "Top categories by sales", description = "Returns the top categories for a merchant in a given bucket starting at bucketStart.", responses = {
+                        @ApiResponse(responseCode = "200", description = "Successful response", content = @Content(mediaType = "application/json", schema = @Schema(implementation = TopCategoryResponse.class), examples = @ExampleObject(name = "topCategoriesExample", value = "[{\n  \"categoryId\": 101,\n  \"categoryName\": \"Beverages\",\n  \"totalSalesAmount\": 12345.67,\n  \"totalUnitsSold\": 321,\n  \"orderCount\": 45\n}, {\n  \"categoryId\": 102,\n  \"categoryName\": \"Snacks\",\n  \"totalSalesAmount\": 9876.54,\n  \"totalUnitsSold\": 210,\n  \"orderCount\": 30\n}]")))
+        })
+        @GetMapping("/top-categories")
+        public List<TopCategoryResponse> topCategories(
+                        @Parameter(description = "Merchant identifier", example = "1") @RequestParam Long merchantId,
+                        @Parameter(description = "Aggregation bucket type", example = "DAY") @RequestParam String bucketType,
+                        @Parameter(description = "Start of the bucket (ISO-8601)", example = "2024-01-01T00:00:00Z") @RequestParam Instant bucketStart,
+                        @Parameter(description = "End of the bucket (ISO-8601) - Required if bucketType is CUSTOM", example = "2024-12-31T23:59:59Z") @RequestParam(required = false) Instant bucketEnd,
+                        @Parameter(description = "Max number of categories to return", example = "5") @RequestParam(defaultValue = "5") int limit) {
+                return service.topCategories(
+                                merchantId,
+                                bucketType,
+                                bucketStart,
+                                bucketEnd,
+                                limit)
+                                .stream()
+                                .map(TopCategoryResponse::from)
+                                .toList();
+        }
 }

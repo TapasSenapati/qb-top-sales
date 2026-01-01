@@ -265,6 +265,20 @@ Two layers of idempotency protect against duplicates:
 
 2. **Aggregation layer** (`orderId`): DB-generated ID prevents reprocessing same order in Kafka consumer. Stored in DuckDB `processed_events`.
 
+## System Intervals & Frequency ⏱️
+
+### 1. Ingestion & Aggregation (Real-Time ⚡)
+- **Trigger**: Immediate upon order creation.
+- **Latency**: Milliseconds to seconds (Postgres Write -> Outbox -> Kafka -> Aggregation).
+- **Writes**: **Dual-Write** to PostgreSQL (for UI/Custom Range) and DuckDB (for Forecasting).
+- **Use Case**: "Top Categories" dashboard, Custom/Year-to-Date range queries.
+
+### 2. Forecasting (Periodic Batch 🕰️)
+- **Trigger**: Background Scheduler (`worker.py`).
+- **Interval**: **Every 1 minute** (Demo setting; likely hourly/daily in production).
+- **Writes**: Reads aggregated DuckDB data, computes models, writes to `category_sales_forecast`.
+- **Use Case**: "Next Period" predictions, Model Comparison.
+
 ## Failure modes (and mitigations)
 
 - **Kafka outage**: ingestion outbox accumulates `processed=false` rows; once Kafka recovers the relay can drain (eventual consistency).
@@ -308,3 +322,8 @@ Two layers of idempotency protect against duplicates:
 - **Precompute forecasts** improves UI latency and enables model comparison, trading off storage growth and job orchestration complexity.
     
 - **orderId for idempotency** is simple for single-instance demo but needs TSID/Snowflake for multi-instance production scaling.
+
+- **Real-time Aggregation vs Batch Forecasting** (Added):
+    - *Aggregation* is expensively real-time to allow instant "Custom Range" queries (summing daily buckets on the fly).
+    - *Forecasting* is batched to save compute; valid because predictions don't change every second.
+    - Tradeoff: Complexity of coordinating two different timing models for data consistency.

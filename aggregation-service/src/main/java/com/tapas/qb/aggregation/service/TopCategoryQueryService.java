@@ -20,13 +20,20 @@ public class TopCategoryQueryService {
             Long merchantId,
             String bucketType,
             Instant bucketStart,
-            int limit
-    ) {
+            Instant bucketEnd,
+            int limit) {
+        if ("CUSTOM".equalsIgnoreCase(bucketType) && bucketEnd != null) {
+            return repository.findTopCategoriesInRange(
+                    merchantId,
+                    bucketStart,
+                    bucketEnd,
+                    limit);
+        }
+
         return repository.findTopCategories(
                 merchantId,
                 bucketType,
                 bucketStart,
-                limit
-        );
+                limit);
     }
 }
