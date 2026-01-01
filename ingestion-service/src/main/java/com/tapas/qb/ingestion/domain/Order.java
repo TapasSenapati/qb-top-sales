@@ -23,4 +23,10 @@ public class Order {
     private Instant orderDate;
 
     private BigDecimal totalAmount;
+
+    @Column(nullable = false)
+    private String currency;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt = Instant.now();
 }

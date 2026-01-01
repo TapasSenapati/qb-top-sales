@@ -24,6 +24,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import com.tapas.qb.ingestion.domain.Merchant;
+import com.tapas.qb.ingestion.repository.MerchantRepository;
+
 @Service
 public class OrderServiceImpl implements OrderService {
 
@@ -31,6 +34,7 @@ public class OrderServiceImpl implements OrderService {
         private final OrderItemRepository orderItemRepository;
         private final OrderEventRepository orderEventRepository;
         private final ProductRepository productRepository;
+        private final MerchantRepository merchantRepository;
         private final ObjectMapper objectMapper;
 
         public OrderServiceImpl(
@@ -38,11 +42,13 @@ public class OrderServiceImpl implements OrderService {
                         OrderItemRepository orderItemRepository,
                         OrderEventRepository orderEventRepository,
                         ProductRepository productRepository,
+                        MerchantRepository merchantRepository,
                         ObjectMapper objectMapper) {
                 this.orderRepository = orderRepository;
                 this.orderItemRepository = orderItemRepository;
                 this.orderEventRepository = orderEventRepository;
                 this.productRepository = productRepository;
+                this.merchantRepository = merchantRepository;
                 this.objectMapper = objectMapper;
         }
 
@@ -51,24 +57,10 @@ public class OrderServiceImpl implements OrderService {
         public OrderCreateResponse createOrder(OrderCreateRequest request) {
                 /*
                  * API-level idempotency using externalOrderId (client-provided UUID).
-                 * 
-                 * Two layers of idempotency in this system:
-                 * 1. externalOrderId (here): Prevents duplicate orders at API entry point.
-                 * - Client generates UUID before calling API
-                 * - If API call times out but order was saved, retry won't create duplicate
-                 * - Standard pattern for idempotent REST APIs (orders, payments, etc.)
-                 * 
-                 * 2. orderId (in aggregation-service): Prevents reprocessing same order in
-                 * Kafka consumer.
-                 * - DB-generated BIGSERIAL, monotonically increasing
-                 * - Stored in DuckDB processed_events table
-                 * - If aggregation crashes mid-processing, won't re-aggregate same order
-                 * 
-                 * TODO (Production): Use TSID/Snowflake for globally unique, time-sorted IDs
-                 * when scaling to multiple ingestion instances.
                  */
                 Optional<Order> existingOrderOpt = orderRepository.findByExternalOrderId(request.externalOrderId());
                 if (existingOrderOpt.isPresent()) {
+                        // ... existing logic for skipping ...
                         Order existingOrder = existingOrderOpt.get();
                         System.out.println("Order with external ID '" + request.externalOrderId()
                                         + "' already exists. Skipping creation.");
@@ -81,6 +73,11 @@ public class OrderServiceImpl implements OrderService {
                                         "SKIPPED_ALREADY_EXISTS");
                 }
 
+                // 2. Lookup Merchant for Currency Snapshot
+                Merchant merchant = merchantRepository.findById(request.merchantId())
+                                .orElseThrow(() -> new IllegalArgumentException(
+                                                "Merchant not found: " + request.merchantId()));
+
                 // 1. Compute totals
                 BigDecimal totalAmount = request.items().stream()
                                 .map(i -> i.unitPrice().multiply(BigDecimal.valueOf(i.quantity())))
@@ -92,6 +89,14 @@ public class OrderServiceImpl implements OrderService {
                 order.setMerchantId(request.merchantId());
                 order.setOrderDate(request.orderDate());
                 order.setTotalAmount(totalAmount);
+
+                // SNAPSHOT STRATEGY:
+                // Use request currency if provided and matches, else default to Merchant's base
+                // currency
+                // For this strict implementation, we trust the Merchant's base currency as the
+                // source of truth
+                order.setCurrency(merchant.getCurrency());
+
                 order = orderRepository.save(order);
 
                 // 3. Save order items
@@ -120,7 +125,6 @@ public class OrderServiceImpl implements OrderService {
                 }
 
                 // 5. Build payload (orderId used for downstream idempotency)
-                // TODO (Production): Use TSID/Snowflake for globally unique IDs when scaling
                 OrderCreatedEventPayload payload = new OrderCreatedEventPayload(
                                 order.getId(), // orderId - used for idempotency downstream
                                 request.merchantId(),

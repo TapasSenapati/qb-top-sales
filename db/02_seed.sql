@@ -4,7 +4,7 @@ VALUES (1, 'Merchant A', 'USD'),
        (2, 'Merchant B', 'EUR'),
        (3, 'Merchant C', 'INR') ON CONFLICT (id) DO NOTHING;
 
--- Seed categories (flat structure - no hierarchy)
+-- Seed categories (flat structure for now, but schema supports hierarchy)
 INSERT INTO ingestion.categories (id, merchant_id, name)
 VALUES (1, 1, 'Electronics'),
        (2, 1, 'Books'),
@@ -19,41 +19,37 @@ VALUES (101, 1, 1, 'Smartphone X'),
        (104, 2, 3, 'T-Shirt'),
        (105, 3, 4, 'Blender') ON CONFLICT (id) DO NOTHING;
 
--- Optional: seed a few historical orders for each merchant to ensure
--- multiple time-series points are available even before the simulator runs.
--- These are simple examples; the aggregation-service will transform them
--- into category_sales_agg entries once events are processed.
-
--- Note: IDs are fixed for idempotency; ON CONFLICT ensures re-runs are safe.
--- Currency is derived from merchant (single currency per merchant enforced at schema level)
-INSERT INTO ingestion.orders (id, merchant_id, order_date, total_amount)
+-- Seed orders
+-- Snapshot Strategy: We explicitly store the currency 'USD'/'EUR'/'INR' on each order
+-- matching the merchant's base currency.
+INSERT INTO ingestion.orders (id, merchant_id, order_date, currency, total_amount)
 VALUES
     -- Last 7 days of orders for Merchant 1 (USD)
-    (1001, 1, CURRENT_DATE - INTERVAL '7 days', 150.00),
-    (1002, 1, CURRENT_DATE - INTERVAL '6 days', 200.00),
-    (1003, 1, CURRENT_DATE - INTERVAL '5 days', 250.00),
-    (1004, 1, CURRENT_DATE - INTERVAL '4 days', 180.00),
-    (1005, 1, CURRENT_DATE - INTERVAL '3 days', 300.00),
-    (1006, 1, CURRENT_DATE - INTERVAL '2 days', 220.00),
-    (1007, 1, CURRENT_DATE - INTERVAL '1 day', 190.00),
+    (1001, 1, CURRENT_DATE - INTERVAL '7 days', 'USD', 150.00),
+    (1002, 1, CURRENT_DATE - INTERVAL '6 days', 'USD', 200.00),
+    (1003, 1, CURRENT_DATE - INTERVAL '5 days', 'USD', 250.00),
+    (1004, 1, CURRENT_DATE - INTERVAL '4 days', 'USD', 180.00),
+    (1005, 1, CURRENT_DATE - INTERVAL '3 days', 'USD', 300.00),
+    (1006, 1, CURRENT_DATE - INTERVAL '2 days', 'USD', 220.00),
+    (1007, 1, CURRENT_DATE - INTERVAL '1 day', 'USD', 190.00),
 
     -- Last 7 days of orders for Merchant 2 (EUR)
-    (2001, 2, CURRENT_DATE - INTERVAL '7 days',  80.00),
-    (2002, 2, CURRENT_DATE - INTERVAL '6 days', 120.00),
-    (2003, 2, CURRENT_DATE - INTERVAL '5 days',  90.00),
-    (2004, 2, CURRENT_DATE - INTERVAL '4 days', 110.00),
-    (2005, 2, CURRENT_DATE - INTERVAL '3 days', 150.00),
-    (2006, 2, CURRENT_DATE - INTERVAL '2 days', 130.00),
-    (2007, 2, CURRENT_DATE - INTERVAL '1 day', 100.00),
+    (2001, 2, CURRENT_DATE - INTERVAL '7 days', 'EUR',  80.00),
+    (2002, 2, CURRENT_DATE - INTERVAL '6 days', 'EUR', 120.00),
+    (2003, 2, CURRENT_DATE - INTERVAL '5 days', 'EUR',  90.00),
+    (2004, 2, CURRENT_DATE - INTERVAL '4 days', 'EUR', 110.00),
+    (2005, 2, CURRENT_DATE - INTERVAL '3 days', 'EUR', 150.00),
+    (2006, 2, CURRENT_DATE - INTERVAL '2 days', 'EUR', 130.00),
+    (2007, 2, CURRENT_DATE - INTERVAL '1 day', 'EUR', 100.00),
 
     -- Last 7 days of orders for Merchant 3 (INR)
-    (3001, 3, CURRENT_DATE - INTERVAL '7 days',  90.00),
-    (3002, 3, CURRENT_DATE - INTERVAL '6 days', 110.00),
-    (3003, 3, CURRENT_DATE - INTERVAL '5 days', 130.00),
-    (3004, 3, CURRENT_DATE - INTERVAL '4 days', 100.00),
-    (3005, 3, CURRENT_DATE - INTERVAL '3 days', 140.00),
-    (3006, 3, CURRENT_DATE - INTERVAL '2 days', 120.00),
-    (3007, 3, CURRENT_DATE - INTERVAL '1 day', 150.00)
+    (3001, 3, CURRENT_DATE - INTERVAL '7 days', 'INR',  90.00),
+    (3002, 3, CURRENT_DATE - INTERVAL '6 days', 'INR', 110.00),
+    (3003, 3, CURRENT_DATE - INTERVAL '5 days', 'INR', 130.00),
+    (3004, 3, CURRENT_DATE - INTERVAL '4 days', 'INR', 100.00),
+    (3005, 3, CURRENT_DATE - INTERVAL '3 days', 'INR', 140.00),
+    (3006, 3, CURRENT_DATE - INTERVAL '2 days', 'INR', 120.00),
+    (3007, 3, CURRENT_DATE - INTERVAL '1 day', 'INR', 150.00)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)

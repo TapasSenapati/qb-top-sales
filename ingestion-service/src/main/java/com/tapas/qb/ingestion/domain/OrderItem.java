@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 @Getter
 @Setter
@@ -24,4 +25,7 @@ public class OrderItem {
     private BigDecimal unitPrice;
 
     private BigDecimal lineAmount;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt = Instant.now();
 }

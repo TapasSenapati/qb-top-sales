@@ -31,7 +31,7 @@
 
 - Flat categories: categories are non-hierarchical (no parent-child relationships). If hierarchical categories are needed in production (e.g., "Smartphones → Phones → Electronics"), add `parent_category_id` with recursive queries for roll-up reporting.
 
-- Single currency per merchant: each merchant operates in a single base currency (e.g., USD, EUR, INR). Currency is stored on the merchant, not per-order. No currency conversion is implemented. Production multi-currency support would require exchange rate tables and normalization at ingestion or aggregation time.
+- Single currency per merchant: each merchant operates in a single base currency (e.g., USD, EUR, INR). Currency is stored on the merchant, and **snapshotted on the order** to guarantee historical integrity. No currency conversion is implemented. Production multi-currency support would require exchange rate tables and normalization at ingestion or aggregation time.
     
 
 ## Architecture
@@ -146,6 +146,7 @@
 - **GET** `/api/top-categories` with `merchantId`, `bucketType`, `bucketStart`, `limit` returns top categories by aggregated sales amount.
 
 ## Forecasting service API (predictions)
+> **Note**: Currency is implied by the `merchant_id`. Since each merchant uses one currency, the forecast values (e.g., 5000) are in that merchant's base currency. Explicit currency in response is deferred until multi-currency support is needed.
 
 - **GET** `/forecast/top-categories` supports `merchant_id`, `bucket_type`, `model`, `lookback`, `limit` and returns top forecasted categories.
     
@@ -187,6 +188,7 @@
 - `ingestion.merchants`
     - **PK**: `id` (BIGSERIAL).
     - `currency` (TEXT NOT NULL): merchant's base currency (single currency per merchant).
+    - Audit: `created_at`, `updated_at`. Critical for reconciling configuration changes and debugging "when did this change?" issues.
         
 - `ingestion.categories`
     - **PK**: `id` (BIGSERIAL).
@@ -202,7 +204,8 @@
     - **PK**: `id` (BIGSERIAL).
     - **FK**: `merchant_id -> ingestion.merchants(id)`.
     - **UNIQUE**: `external_order_id` (for API idempotency).
-    - Currency is derived from merchant (not stored per-order).
+    - **Snapshot**: `currency` (TEXT NOT NULL). stored at creation time to ensure historical accuracy (e.g., if merchant changes base currency later).
+    - Audit: `created_at` (orders are immutable, no `updated_at` needed). Used for debugging ingestion latency and data freshness checks.
         
 - `ingestion.order_items`
     - **PK**: `id` (BIGSERIAL).

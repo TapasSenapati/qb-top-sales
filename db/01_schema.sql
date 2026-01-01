@@ -1,10 +1,10 @@
 -- PostgreSQL Schema for Ingestion (OLTP)
--- Analytics/forecasting data is stored in DuckDB (see db/03_duckdb_schema.duckdb)
+-- Analytics/forecasting data is stored in DuckDB (see db/03_duckdb_schema.sql)
 -- but category_sales_agg is also in Postgres for JPA queries that join with ingestion tables
 CREATE SCHEMA IF NOT EXISTS ingestion;
 CREATE SCHEMA IF NOT EXISTS forecasting;
 
--- forecasting.category_sales_agg (for JPA queries joining with ingestion tables)
+-- forecasting.category_sales_agg (for JPA queries joining with ingestion tables if needed)
 CREATE TABLE IF NOT EXISTS forecasting.category_sales_agg (
     id                 BIGSERIAL PRIMARY KEY,
     merchant_id        BIGINT NOT NULL,
@@ -26,37 +26,48 @@ CREATE INDEX IF NOT EXISTS idx_cat_sales_merchant_bucket
 -- Each merchant operates in a single base currency (no multi-currency orders)
 CREATE TABLE IF NOT EXISTS ingestion.merchants
 (
-    id       BIGSERIAL PRIMARY KEY,
-    name     TEXT NOT NULL,
-    currency TEXT NOT NULL  -- Merchant's base currency (e.g., USD, EUR, INR)
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT        NOT NULL,
+    currency   TEXT        NOT NULL,  -- Merchant's base currency (e.g., USD, EUR, INR)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ingestion.categories (flat structure - no hierarchy)
+-- ingestion.categories
 CREATE TABLE IF NOT EXISTS ingestion.categories
 (
-    id          BIGSERIAL PRIMARY KEY,
-    merchant_id BIGINT NOT NULL REFERENCES ingestion.merchants (id),
-    name        TEXT   NOT NULL
+    id                 BIGSERIAL PRIMARY KEY,
+    merchant_id        BIGINT NOT NULL REFERENCES ingestion.merchants (id),
+    name               TEXT   NOT NULL,
+    parent_category_id BIGINT NULL REFERENCES ingestion.categories (id),
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ingestion.products
 CREATE TABLE IF NOT EXISTS ingestion.products
 (
     id          BIGSERIAL PRIMARY KEY,
-    merchant_id BIGINT NOT NULL REFERENCES ingestion.merchants (id),
-    category_id BIGINT NOT NULL REFERENCES ingestion.categories (id),
-    name        TEXT   NOT NULL
+    merchant_id BIGINT      NOT NULL REFERENCES ingestion.merchants (id),
+    category_id BIGINT      NOT NULL REFERENCES ingestion.categories (id),
+    name        TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ingestion.orders
--- Currency is derived from merchant (single currency per merchant enforced at schema level)
+-- CURRENCY STRATEGY: Snapshot. 
+-- We store the currency on the order to ensure immutability and historical accuracy.
+-- Ideally matches the merchant's base currency.
 CREATE TABLE IF NOT EXISTS ingestion.orders
 (
-    id           BIGSERIAL PRIMARY KEY,
-    merchant_id  BIGINT         NOT NULL REFERENCES ingestion.merchants (id),
-    order_date   TIMESTAMPTZ    NOT NULL,
-    total_amount NUMERIC(18, 2) NOT NULL,
-    external_order_id TEXT UNIQUE
+    id                BIGSERIAL PRIMARY KEY,
+    merchant_id       BIGINT         NOT NULL REFERENCES ingestion.merchants (id),
+    order_date        TIMESTAMPTZ    NOT NULL,
+    currency          TEXT           NOT NULL,  -- Snapshot of currency at order time
+    total_amount      NUMERIC(18, 2) NOT NULL,
+    external_order_id TEXT UNIQUE,
+    created_at        TIMESTAMPTZ    NOT NULL DEFAULT now()
 );
 
 -- ingestion.order_items
@@ -67,7 +78,8 @@ CREATE TABLE IF NOT EXISTS ingestion.order_items
     product_id  BIGINT         NOT NULL REFERENCES ingestion.products (id),
     quantity    INT            NOT NULL,
     unit_price  NUMERIC(18, 2) NOT NULL,
-    line_amount NUMERIC(18, 2) NOT NULL
+    line_amount NUMERIC(18, 2) NOT NULL,
+    created_at  TIMESTAMPTZ    NOT NULL DEFAULT now()
 );
 
 -- ingestion.order_events (outbox)
@@ -96,5 +108,3 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order
 CREATE INDEX IF NOT EXISTS idx_order_events_unprocessed
     ON ingestion.order_events (created_at)
     WHERE processed = false;
-
-

@@ -9,18 +9,17 @@ import java.time.Instant;
 @Getter
 @Setter
 @Entity
-@Table(name = "products", schema = "ingestion")
-public class Product {
+@Table(name = "merchants", schema = "ingestion")
+public class Merchant {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private Long merchantId;
-
-    @Column(name = "category_id", nullable = false)
-    private Long categoryId;
-
+    @Column(nullable = false)
     private String name;
+
+    @Column(nullable = false)
+    private String currency;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
