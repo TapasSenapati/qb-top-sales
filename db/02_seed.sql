@@ -3,9 +3,16 @@
 -- ============================================================================
 -- This seed data provides:
 -- - 3 merchants (multi-tenant demo)
--- - 8 categories for Merchant 1 (primary demo merchant)
--- - 60 days of order history (good for Prophet/ARIMA trend detection)
+-- - 18 categories (8 for Merchant 1, 5 each for Merchants 2 & 3)
+-- - 120 days of order history (good for Prophet/ARIMA trend detection)
 -- - Varied sales patterns (trending, seasonal, stable)
+-- - Pre-computed aggregations in forecasting.category_sales_agg
+--
+-- NOTE: This seed data bypasses Kafka and directly populates both:
+--   1. ingestion.orders / ingestion.order_items (raw order data)
+--   2. forecasting.category_sales_agg (aggregated data for forecasting)
+--
+-- For live data that flows through Kafka, use the order-simulator instead.
 -- ============================================================================
 
 -- ===================
@@ -127,7 +134,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ===================
--- ORDERS & ORDER ITEMS - MERCHANT 1 (60 days of rich data)
+-- ORDERS & ORDER ITEMS - MERCHANT 1 (120 days of rich data)
 -- ===================
 -- Pattern Strategy for Prophet/ARIMA:
 --   Electronics (cat 1): Strong upward trend
@@ -166,7 +173,7 @@ DECLARE
     home_growth DECIMAL := 1.005;         -- 0.5% daily growth
     
 BEGIN
-    FOR day_offset IN 1..60 LOOP
+    FOR day_offset IN 0..120 LOOP
         order_date := CURRENT_DATE - (day_offset || ' days')::INTERVAL;
         day_of_week := EXTRACT(DOW FROM order_date);
         is_weekend := day_of_week IN (0, 6);  -- Sunday=0, Saturday=6
@@ -302,7 +309,7 @@ DECLARE
     watches_base DECIMAL := 800;
     
 BEGIN
-    FOR day_offset IN 1..60 LOOP
+    FOR day_offset IN 0..120 LOOP
         order_date := CURRENT_DATE - (day_offset || ' days')::INTERVAL;
         day_of_week := EXTRACT(DOW FROM order_date);
         is_weekend := day_of_week IN (0, 6);
@@ -404,7 +411,7 @@ DECLARE
     handicraft_base DECIMAL := 3000;
     
 BEGIN
-    FOR day_offset IN 1..60 LOOP
+    FOR day_offset IN 0..120 LOOP
         order_date := CURRENT_DATE - (day_offset || ' days')::INTERVAL;
         day_of_week := EXTRACT(DOW FROM order_date);
         is_weekend := day_of_week IN (0, 6);
@@ -487,8 +494,8 @@ WHERE o.merchant_id = 3 AND o.id >= 30000;
 -- Merchants: 3 (TechMart USA, EuroStyle, BharatBazaar)
 -- Categories: 18 (8 for Merchant 1, 5 each for Merchants 2 & 3)
 -- Products: 54 (24 for M1, 15 each for M2 & M3)
--- Orders: 180 (60 per merchant)
--- Order Items: 1080 (8 per M1 order, 5 per M2/M3 order)
+-- Orders: 360 (120 per merchant)
+-- Order Items: 2160 (8 per M1 order, 5 per M2/M3 order)
 -- 
 -- Sales Patterns by Merchant:
 -- 
@@ -515,3 +522,87 @@ WHERE o.merchant_id = 3 AND o.id >= 30000;
 --   Traditional Wear: Weekend + festival pattern
 --   Ayurveda & Wellness: Steady growth (~1%/day)
 --   Handicrafts: Gift-driven, weekend + festival boost
+
+-- ===================
+-- SEED AGGREGATED DATA FOR FORECASTING
+-- ===================
+-- The aggregation-service normally populates forecasting.category_sales_agg via Kafka events.
+-- Since seed data bypasses Kafka, we need to populate this table directly for forecasting to work.
+
+-- Aggregate order data into forecasting.category_sales_agg (DAY buckets)
+INSERT INTO forecasting.category_sales_agg (merchant_id, category_id, bucket_type, bucket_start, bucket_end, total_sales_amount, total_units_sold, order_count)
+SELECT 
+    m.id as merchant_id,
+    p.category_id,
+    'DAY' as bucket_type,
+    DATE_TRUNC('day', o.order_date) as bucket_start,
+    DATE_TRUNC('day', o.order_date) + INTERVAL '1 day' as bucket_end,
+    SUM(oi.line_amount) as total_sales_amount,
+    SUM(oi.quantity) as total_units_sold,
+    COUNT(DISTINCT o.id) as order_count
+FROM ingestion.orders o
+JOIN ingestion.order_items oi ON o.id = oi.order_id
+JOIN ingestion.products p ON oi.product_id = p.id
+JOIN ingestion.merchants m ON o.merchant_id = m.id
+WHERE o.id >= 10000  -- Only seeded orders
+GROUP BY m.id, p.category_id, DATE_TRUNC('day', o.order_date)
+ON CONFLICT (merchant_id, category_id, bucket_type, bucket_start) 
+DO UPDATE SET 
+    total_sales_amount = EXCLUDED.total_sales_amount,
+    total_units_sold = EXCLUDED.total_units_sold,
+    order_count = EXCLUDED.order_count,
+    updated_at = now();
+
+-- Also create WEEK buckets for weekly forecasting
+INSERT INTO forecasting.category_sales_agg (merchant_id, category_id, bucket_type, bucket_start, bucket_end, total_sales_amount, total_units_sold, order_count)
+SELECT 
+    m.id as merchant_id,
+    p.category_id,
+    'WEEK' as bucket_type,
+    DATE_TRUNC('week', o.order_date) as bucket_start,
+    DATE_TRUNC('week', o.order_date) + INTERVAL '1 week' as bucket_end,
+    SUM(oi.line_amount) as total_sales_amount,
+    SUM(oi.quantity) as total_units_sold,
+    COUNT(DISTINCT o.id) as order_count
+FROM ingestion.orders o
+JOIN ingestion.order_items oi ON o.id = oi.order_id
+JOIN ingestion.products p ON oi.product_id = p.id
+JOIN ingestion.merchants m ON o.merchant_id = m.id
+WHERE o.id >= 10000
+GROUP BY m.id, p.category_id, DATE_TRUNC('week', o.order_date)
+ON CONFLICT (merchant_id, category_id, bucket_type, bucket_start) 
+DO UPDATE SET 
+    total_sales_amount = EXCLUDED.total_sales_amount,
+    total_units_sold = EXCLUDED.total_units_sold,
+    order_count = EXCLUDED.order_count,
+    updated_at = now();
+
+-- Also create MONTH buckets for monthly forecasting
+INSERT INTO forecasting.category_sales_agg (merchant_id, category_id, bucket_type, bucket_start, bucket_end, total_sales_amount, total_units_sold, order_count)
+SELECT 
+    m.id as merchant_id,
+    p.category_id,
+    'MONTH' as bucket_type,
+    DATE_TRUNC('month', o.order_date) as bucket_start,
+    DATE_TRUNC('month', o.order_date) + INTERVAL '1 month' as bucket_end,
+    SUM(oi.line_amount) as total_sales_amount,
+    SUM(oi.quantity) as total_units_sold,
+    COUNT(DISTINCT o.id) as order_count
+FROM ingestion.orders o
+JOIN ingestion.order_items oi ON o.id = oi.order_id
+JOIN ingestion.products p ON oi.product_id = p.id
+JOIN ingestion.merchants m ON o.merchant_id = m.id
+WHERE o.id >= 10000
+GROUP BY m.id, p.category_id, DATE_TRUNC('month', o.order_date)
+ON CONFLICT (merchant_id, category_id, bucket_type, bucket_start) 
+DO UPDATE SET 
+    total_sales_amount = EXCLUDED.total_sales_amount,
+    total_units_sold = EXCLUDED.total_units_sold,
+    order_count = EXCLUDED.order_count,
+    updated_at = now();
+
+-- Mark seeded orders as processed (for idempotency)
+INSERT INTO forecasting.processed_events (order_id)
+SELECT id FROM ingestion.orders WHERE id >= 10000
+ON CONFLICT (order_id) DO NOTHING;
+

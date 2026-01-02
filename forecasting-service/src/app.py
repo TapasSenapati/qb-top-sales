@@ -10,7 +10,7 @@ import os
 
 from . import db
 from .service import ForecastingService, CategoryForecastResult, compute_confidence # Import compute_confidence
-from .consul_registration import register_service, deregister_service
+
 from .evaluate_models import evaluate_models
 from .postgres_client import get_postgres_client
 
@@ -43,9 +43,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to connect to PostgreSQL: {e}")
     
-    register_service()
     yield
-    deregister_service()
 
 
 app = FastAPI(

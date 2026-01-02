@@ -66,9 +66,12 @@
                      |     API Gateway / Ingress (prod add-on)     |
                      |  AuthN/AuthZ, TLS, WAF, rate limits, routing|
                      +-----------+---------------------+-----------+
-                                 |                     |
-                                 |                     |
-                                 v                     v
+### 3.4 Service Discovery
+*   **Mechanism**: **Docker DNS** (previously Consul)
+    *   Services communicate directly using Docker container hostnames (e.g., `http://ingestion-service:8081`).
+    *   **Simplification**: For a local demo/craft project, dynamic service discovery overhead (Consul) was removed in favor of native platform capabilities.
+*   **Environment Variables**:
+    *   `AGGREGATION_SERVICE_URL`: Configures where the forecasting service finds the aggregation API.
                  +---------------+-----+     +---------+----------------+
                  |  Forecasting Service |     |     Aggregation Service |
                  |  (FastAPI + UI/API)  |     |  (Kafka consumer + API) |

@@ -16,6 +16,110 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- Actuals Tab: Preset Buttons ---
+    let selectedPreset = 'today';
+    const presetBtns = document.querySelectorAll('.preset-btn');
+    const customRangeGroup = document.getElementById('custom-range-group');
+
+    presetBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            presetBtns.forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            selectedPreset = btn.dataset.preset;
+
+            if (selectedPreset === 'custom') {
+                customRangeGroup.classList.add('visible');
+            } else {
+                customRangeGroup.classList.remove('visible');
+            }
+        });
+    });
+
+    // --- Actuals Form ---
+    const actualsForm = document.getElementById('actuals-form');
+    actualsForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(actualsForm);
+        const resultsArea = document.getElementById('actuals-results');
+        resultsArea.innerHTML = 'Loading...';
+
+        // Calculate date range based on preset
+        // IMPORTANT: Use UTC dates to match DB bucket_start which stores UTC midnight
+        let bucketType, bucketStart, bucketEnd;
+        const now = new Date();
+
+        // Helper: Create UTC midnight date string (YYYY-MM-DDT00:00:00.000Z)
+        const toUTCMidnight = (year, month, day) => {
+            return new Date(Date.UTC(year, month, day)).toISOString();
+        };
+
+        switch (selectedPreset) {
+            case 'today':
+                bucketType = 'DAY';
+                bucketStart = toUTCMidnight(now.getFullYear(), now.getMonth(), now.getDate());
+                bucketEnd = null;
+                break;
+            case 'week':
+                bucketType = 'WEEK';
+                const weekStartDate = new Date(now);
+                // PostgreSQL DATE_TRUNC('week') uses Monday as week start
+                // getDay() returns 0=Sun,1=Mon,...,6=Sat, so we need (getDay()+6)%7 to get days since Monday
+                const daysSinceMonday = (now.getDay() + 6) % 7;
+                weekStartDate.setDate(now.getDate() - daysSinceMonday);
+                bucketStart = toUTCMidnight(weekStartDate.getFullYear(), weekStartDate.getMonth(), weekStartDate.getDate());
+                bucketEnd = toUTCMidnight(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+                break;
+            case 'month':
+                bucketType = 'MONTH';
+                bucketStart = toUTCMidnight(now.getFullYear(), now.getMonth(), 1);
+                bucketEnd = toUTCMidnight(now.getFullYear(), now.getMonth() + 1, 1);
+                break;
+            case 'ytd':
+                bucketType = 'CUSTOM';
+                bucketStart = toUTCMidnight(now.getFullYear(), 0, 1);
+                bucketEnd = toUTCMidnight(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+                break;
+            case 'custom':
+                bucketType = 'CUSTOM';
+                const startDate = document.getElementById('actuals-start-date').value;
+                const endDate = document.getElementById('actuals-end-date').value;
+                if (!startDate || !endDate) {
+                    resultsArea.innerHTML = '<p class="error">Please select both start and end dates.</p>';
+                    return;
+                }
+                // Parse YYYY-MM-DD and convert to UTC
+                const [sy, sm, sd] = startDate.split('-').map(Number);
+                const [ey, em, ed] = endDate.split('-').map(Number);
+                bucketStart = toUTCMidnight(sy, sm - 1, sd);
+                bucketEnd = toUTCMidnight(ey, em - 1, ed + 1);
+                break;
+            default:
+                // Fallback to today if no preset selected
+                bucketType = 'DAY';
+                bucketStart = toUTCMidnight(now.getFullYear(), now.getMonth(), now.getDate());
+                bucketEnd = null;
+                break;
+        }
+
+        try {
+            // Call aggregation-service API
+            const params = new URLSearchParams({
+                merchantId: formData.get('merchant_id'),
+                bucketType: bucketType,
+                bucketStart: bucketStart,
+                limit: formData.get('limit')
+            });
+            if (bucketEnd) params.append('bucketEnd', bucketEnd);
+
+            const response = await fetch(`http://localhost:8082/api/top-categories?${params.toString()}`);
+            if (!response.ok) throw new Error(`Error: ${response.statusText}`);
+            const data = await response.json();
+            resultsArea.innerHTML = renderActualsTable(data, selectedPreset);
+        } catch (error) {
+            resultsArea.innerHTML = `<p class="error">${error.message}</p>`;
+        }
+    });
+
     // --- Forecast Form ---
     const forecastForm = document.getElementById('forecast-form');
     forecastForm.addEventListener('submit', async (e) => {
@@ -45,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('compare-results').innerHTML = '<p style="color: red;">Please select at least one model to compare.</p>';
             return;
         }
-        
+
         const params = new URLSearchParams({
             merchant_id: formData.get('merchant_id'),
             bucket_type: formData.get('bucket_type'),
@@ -90,7 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function renderForecastTable(data) {
     if (!data.forecasts.length) {
         let messageHtml = '<b>No forecast data returned.</b>';
-        if(data.messages && data.messages.length > 0) {
+        if (data.messages && data.messages.length > 0) {
             messageHtml += '<ul>';
             data.messages.forEach(msg => messageHtml += `<li>${msg}</li>`);
             messageHtml += '</ul>';
@@ -114,7 +218,7 @@ function renderForecastTable(data) {
 function renderCompareTable(data) {
     if (!data.forecasts.length) {
         let messageHtml = '<b>No forecast data returned for comparison.</b>';
-        if(data.messages && data.messages.length > 0) {
+        if (data.messages && data.messages.length > 0) {
             messageHtml += '<ul>';
             data.messages.forEach(msg => messageHtml += `<li>${msg}</li>`);
             messageHtml += '</ul>';
@@ -167,4 +271,39 @@ function renderEvaluationMetrics(data) {
         </div>`;
     }
     return cards;
+}
+
+function renderActualsTable(data, preset) {
+    if (!data || data.length === 0) {
+        return '<p><b>No sales data found for the selected period.</b></p>';
+    }
+
+    const presetLabels = {
+        'today': 'Today',
+        'week': 'This Week',
+        'month': 'This Month',
+        'ytd': 'Year-to-Date',
+        'custom': 'Custom Range'
+    };
+
+    let html = `<h3>Top Categories - ${presetLabels[preset] || 'Selected Period'}</h3>`;
+    html += '<table><thead><tr><th>#</th><th>Category</th><th>Total Sales</th><th>Units Sold</th><th>Orders</th></tr></thead><tbody>';
+
+    data.forEach((item, index) => {
+        html += `<tr>
+            <td>${index + 1}</td>
+            <td>${item.categoryName} (${item.categoryId})</td>
+            <td>${formatCurrency(item.totalSalesAmount)}</td>
+            <td>${item.totalUnitsSold || '-'}</td>
+            <td>${item.orderCount || '-'}</td>
+        </tr>`;
+    });
+
+    html += '</tbody></table>';
+    return html;
+}
+
+function formatCurrency(amount) {
+    if (amount === null || amount === undefined) return '-';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }

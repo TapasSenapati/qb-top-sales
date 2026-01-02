@@ -50,8 +50,7 @@ We expose metrics in JSON and Prometheus formats.
 
 ## 4. Container & Service Discovery 🐳
 
-*   **Consul UI**: [http://localhost:8500](http://localhost:8500)
-    *   View all registered services and their health status in real-time.
+*      *   View all registered services and their health status in real-time.
 *   **Docker Stats**:
     *   Run `docker stats` to see CPU/Memory usage of containers.
 

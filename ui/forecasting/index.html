@@ -14,14 +14,57 @@
             <h1>Forecasting Service UI</h1>
         </header>
         <nav>
-            <button class="tab-button active" data-tab="forecast">Get Forecast</button>
+            <button class="tab-button active" data-tab="actuals">Historical Sales</button>
+            <button class="tab-button" data-tab="forecast">Get Forecast</button>
             <button class="tab-button" data-tab="compare">Compare Models</button>
             <button class="tab-button" data-tab="evaluate">Evaluate Models</button>
         </nav>
         <main>
             <!-- Tab Content -->
-            <div id="forecast" class="tab-content active">
-                <h2>Get Forecast for Top Categories</h2>
+            <div id="actuals" class="tab-content active">
+                <h2>Historical Sales - Top Categories</h2>
+                <p class="tab-description">View actual sales data from past orders. Select a time period to see which
+                    product categories performed best.</p>
+                <form id="actuals-form">
+                    <div class="form-group">
+                        <label for="actuals-merchant-id">Merchant ID</label>
+                        <input id="actuals-merchant-id" type="number" name="merchant_id" value="1" required>
+                        <p class="description">Select merchant: 1 (TechMart USA), 2 (EuroStyle), 3 (BharatBazaar)</p>
+                    </div>
+                    <div class="form-group">
+                        <label>Quick Select</label>
+                        <div class="button-group">
+                            <button type="button" class="preset-btn" data-preset="today">Today</button>
+                            <button type="button" class="preset-btn" data-preset="week">This Week</button>
+                            <button type="button" class="preset-btn" data-preset="month">This Month</button>
+                            <button type="button" class="preset-btn" data-preset="ytd">Year-to-Date</button>
+                            <button type="button" class="preset-btn" data-preset="custom">Custom Range</button>
+                        </div>
+                    </div>
+                    <div id="custom-range-group" class="form-group">
+                        <label for="actuals-start-date">Start Date</label>
+                        <input id="actuals-start-date" type="date" name="start_date">
+                        <label for="actuals-end-date">End Date</label>
+                        <input id="actuals-end-date" type="date" name="end_date">
+                    </div>
+                    <div class="form-group">
+                        <label for="actuals-limit">Limit</label>
+                        <input id="actuals-limit" type="number" name="limit" value="10" min="1" max="20">
+                        <p class="description">Max categories to show (1-20)</p>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit">Get Top Categories</button>
+                        <p class="description">Fetches real historical sales data from the database for the selected
+                            period.</p>
+                    </div>
+                </form>
+                <div id="actuals-results" class="results-area"></div>
+            </div>
+
+            <div id="forecast" class="tab-content">
+                <h2>Forecast - Predict Future Sales</h2>
+                <p class="tab-description">Generate predictions for future sales using forecasting models. Requires
+                    sufficient historical data (at least 4 data points for the selected time bucket).</p>
                 <form id="forecast-form">
                     <div class="form-group">
                         <label for="forecast-merchant-id">Merchant ID</label>
@@ -60,13 +103,17 @@
                     </div>
                     <div class="form-group">
                         <button type="submit">Get Forecast</button>
+                        <p class="description">Generates predicted sales values for top categories based on historical
+                            patterns.</p>
                     </div>
                 </form>
                 <div id="forecast-results" class="results-area"></div>
             </div>
 
             <div id="compare" class="tab-content">
-                <h2>Compare All Models</h2>
+                <h2>Compare Forecasting Models</h2>
+                <p class="tab-description">Run multiple forecasting algorithms side-by-side to compare their predictions
+                    for each category.</p>
                 <form id="compare-form">
                     <div class="form-group">
                         <label for="compare-merchant-id">Merchant ID</label>
@@ -121,13 +168,16 @@
                     </div>
                     <div class="form-group">
                         <button type="submit">Compare Models</button>
+                        <p class="description">Shows predictions from all selected models in a comparison table.</p>
                     </div>
                 </form>
                 <div id="compare-results" class="results-area"></div>
             </div>
 
             <div id="evaluate" class="tab-content">
-                <h2>Evaluate Model Performance</h2>
+                <h2>Evaluate Model Accuracy</h2>
+                <p class="tab-description">Test how accurate each forecasting model is by comparing its predictions
+                    against actual past data (backtesting).</p>
                 <form id="evaluate-form">
                     <div class="form-group">
                         <label for="evaluate-merchant-id">Merchant ID</label>
@@ -150,6 +200,7 @@
                     </div>
                     <div class="form-group">
                         <button type="submit">Run Evaluation</button>
+                        <p class="description">Calculates accuracy metrics (MAE, MSE, RMSE, MAPE) for each model.</p>
                     </div>
                 </form>
                 <div id="evaluate-results" class="results-area"></div>

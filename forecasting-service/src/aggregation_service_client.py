@@ -1,52 +1,17 @@
 import os
-import consul
 import requests
 from typing import List, Dict, Any
 
 
 class AggregationServiceClient:
     """
-    Optional HTTP client for aggregation-service.
-    NOTE:
-    Forecasting-service should prefer direct DB reads.
-    This client is useful for:
-      - future decoupling
-      - demos
-      - fallback paths
+    HTTP client for aggregation-service.
+    Uses direct URL from environment variable AGGREGATION_SERVICE_URL.
     """
 
     def __init__(self):
-        consul_host = os.getenv("CONSUL_HOST", "consul")
-        consul_port = int(os.getenv("CONSUL_PORT", 8500))
-        self.consul = consul.Consul(host=consul_host, port=consul_port)
-
-    def _get_service_url(self, service_name: str) -> str:
-        """
-        Discover a service URL using Consul.
-        Handles Docker + Spring Cloud registration correctly.
-        """
-        _, services = self.consul.health.service(service_name, passing=True)
-
-        if not services:
-            raise ConnectionError(
-                f"Service '{service_name}' not found or not healthy in Consul"
-            )
-
-        service = services[0]
-
-        # Prefer explicit service address, fallback to node address
-        address = (
-            service["Service"]["Address"]
-            or service["Node"]["Address"]
-        )
-        port = service["Service"]["Port"]
-
-        if not address or not port:
-            raise ConnectionError(
-                f"Invalid service registration for '{service_name}': {service}"
-            )
-
-        return f"http://{address}:{port}"
+        # Default to docker service name if not set
+        self.base_url = os.getenv("AGGREGATION_SERVICE_URL", "http://aggregation-service:8082")
 
     def get_top_categories(
         self,
@@ -58,8 +23,7 @@ class AggregationServiceClient:
         """
         Fetch top categories from aggregation-service.
         """
-        base_url = self._get_service_url("aggregation-service")
-        url = f"{base_url}/api/top-categories"
+        url = f"{self.base_url}/api/top-categories"
 
         params = {
             "merchantId": merchant_id,
