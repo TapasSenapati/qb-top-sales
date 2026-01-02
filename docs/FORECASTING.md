@@ -164,6 +164,8 @@ All forecasts in a batch share one timestamp to enable querying "latest batch".
 
 ---
 
+---
+
 ## Interview Talking Points
 
 1. **Design Patterns**: Strategy pattern for models, Registry pattern for lookup
@@ -174,10 +176,111 @@ All forecasts in a batch share one timestamp to enable querying "latest batch".
 
 ---
 
+## UI Visualization Features
+
+The **📊 Visualizations** tab provides interactive charts for forecast analysis directly in the browser.
+
+### Forecast vs Actual Comparison
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Bar Chart: Current Period Forecast vs Actual by Category  │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                        │
+│  │████│ │████│ │████│ │████│ │████│  ← Blue = Actual       │
+│  │▒▒▒▒│ │▒▒▒▒│ │▒▒▒▒│ │▒▒▒▒│ │▒▒▒▒│  ← Red = Forecast      │
+│  └────┘ └────┘ └────┘ └────┘ └────┘                        │
+│   Elec   Home  Cloth  Sports  Auto                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**How it works:**
+1. Fetches current period actuals from `/api/top-categories`
+2. Fetches forecast predictions from `/forecast/top-categories`
+3. Matches by `category_id` and renders side-by-side comparison
+4. Shows variance cards with percentage difference (📈 over / 📉 under forecast)
+
+### Historical Time Series Chart
+
+```
+                ┌── Forecast (dashed line with triangle)
+               ╱
+      ─────╱──▶
+     ╱
+────╱  ← Actual Sales (solid line with fill area)
+```
+
+**Features:**
+- **Solid blue line**: Historical actual sales with filled area
+- **Dashed red line**: Forecast projection extending from last actual
+- **Triangle markers**: Highlight forecast points
+- **Category selector**: Drill into any category's trend
+
+---
+
+## Best Model Recommendation Engine
+
+The visualization automatically recommends the best forecasting model for the merchant.
+
+### How It Works
+
+```python
+# Pseudocode for model recommendation
+for each model in [rolling, wma, ses, snaive, arima]:
+    evaluate using walk-forward validation
+    calculate MAPE (Mean Absolute Percentage Error)
+    
+recommend model with LOWEST MAPE
+```
+
+### API Integration
+
+1. UI calls `/evaluate-models?merchant_id=X&bucket_type=Y&test_points=5`
+2. Backend runs walk-forward validation for all 5 models
+3. Returns metrics per model: `{ rolling: {mape, mae, rmse}, wma: {...}, ... }`
+4. UI parses results and displays the model with lowest MAPE
+
+### Display Format
+
+```
+┌─────────────────────────────────────────────┐
+│ 🏆 Best Model Recommendation                │
+│ ┌─────────────────────────────────────────┐ │
+│ │  ARIMA                                  │ │
+│ │  Recommended for this merchant          │ │
+│ │  MAPE: 12.45%  MAE: $234.56  RMSE: $312 │ │
+│ └─────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+```
+
+### Why MAPE for Selection?
+
+| Metric | When to Use |
+|--------|-------------|
+| **MAPE** | Best for comparing across different sales magnitudes |
+| MAE | Good for understanding average dollar error |
+| RMSE | Penalizes large errors, good for risk-sensitive forecasts |
+
+---
+
+## Refresh Actuals Button
+
+Like QuickBooks' recommended workflow, the **🔄 Refresh Actuals** button:
+- Re-fetches latest data from the aggregation service
+- Updates all charts and variance cards
+- Shows loading animation during refresh
+- Updates "Data as of" timestamp
+
+**Why it matters:** Real-time sales are continuously aggregated. Refreshing shows the system is live and dynamic.
+
+---
+
 ## Future Improvements
 
 - [ ] **Prophet**: Multi-seasonality + holiday effects
 - [ ] **Auto-ARIMA**: Automatic order selection (pmdarima)
 - [ ] **Model Ensemble**: Weighted average of top models
-- [ ] **Confidence Intervals**: Return prediction intervals
+- [x] **Confidence Intervals**: Visual representation in charts *(partially implemented via fill area)*
 - [ ] **Feature Store**: Add external regressors (promotions, weather)
+- [x] **Best Model Recommendation**: Auto-suggest based on MAPE *(implemented)*
+- [x] **Visualization Charts**: Chart.js bar and line charts *(implemented)*
+

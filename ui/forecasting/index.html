@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Forecasting Service</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -15,9 +16,10 @@
         </header>
         <nav>
             <button class="tab-button active" data-tab="actuals">Historical Sales</button>
+            <button class="tab-button" data-tab="visualize">📊 Visualizations</button>
             <button class="tab-button" data-tab="forecast">Get Forecast</button>
             <button class="tab-button" data-tab="compare">Compare Models</button>
-            <button class="tab-button" data-tab="evaluate">Evaluate Models</button>
+            <button class="tab-button" data-tab="evaluate">🔧 Model Debugging</button>
         </nav>
         <main>
             <!-- Tab Content -->
@@ -59,6 +61,80 @@
                     </div>
                 </form>
                 <div id="actuals-results" class="results-area"></div>
+            </div>
+
+            <div id="visualize" class="tab-content">
+                <h2>📊 Forecast vs Actual Visualization</h2>
+                <p class="tab-description">Visualize how forecast predictions compare against actual sales data. Charts
+                    help identify model accuracy and sales trends.</p>
+
+                <form id="visualize-form">
+                    <div class="form-group">
+                        <label for="viz-merchant-id">Merchant ID</label>
+                        <input id="viz-merchant-id" type="number" name="merchant_id" value="1" required>
+                        <p class="description">Select merchant: 1 (TechMart USA), 2 (EuroStyle), 3 (BharatBazaar)</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="viz-bucket-type">Time Bucket</label>
+                        <select id="viz-bucket-type" name="bucket_type">
+                            <option value="DAY">Day</option>
+                            <option value="WEEK">Week</option>
+                            <option value="MONTH">Month</option>
+                        </select>
+                        <p class="description">The time period to aggregate sales by.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="viz-limit">Top Categories</label>
+                        <input id="viz-limit" type="number" name="limit" value="5" min="1" max="10">
+                        <p class="description">Number of top categories to visualize (1-10)</p>
+                    </div>
+                    <div class="form-group button-row">
+                        <button type="submit">Generate Charts</button>
+                        <button type="button" id="refresh-actuals-btn" class="refresh-btn" disabled>
+                            🔄 Refresh Actuals
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Data freshness indicator -->
+                <div id="data-freshness-banner" class="data-freshness-banner" style="display: none;">
+                    <span id="freshness-indicator">●</span>
+                    <span>Data as of: <strong id="last-updated-time">--</strong></span>
+                    <span class="auto-refresh-note">Auto-refreshes available</span>
+                </div>
+
+                <!-- Best Model Recommendation -->
+                <div id="best-model-section" class="best-model-section" style="display: none;">
+                    <h3>🏆 Best Model Recommendation</h3>
+                    <div id="best-model-content"></div>
+                </div>
+
+                <div id="visualize-results" class="chart-results-area">
+                    <!-- Bar Chart: Forecast vs Actual by Category -->
+                    <div class="chart-section">
+                        <h4>📊 Current Period: Forecast vs Actual by Category</h4>
+                        <div class="chart-container">
+                            <canvas id="forecastVsActualChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Line Chart: Historical Time Series -->
+                    <div class="chart-section" id="time-series-section" style="display: none;">
+                        <h4>📈 Historical Trend: <span id="selected-category-name">Select a category</span></h4>
+                        <div class="category-selector">
+                            <label for="category-select">Category:</label>
+                            <select id="category-select">
+                                <option value="">-- Click Generate Charts first --</option>
+                            </select>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="timeSeriesChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Variance Cards -->
+                    <div class="chart-info" id="chart-info"></div>
+                </div>
             </div>
 
             <div id="forecast" class="tab-content">

@@ -18,13 +18,31 @@ def evaluate_models(merchant_id: int, bucket_type: str, test_points: int = 5) ->
         test_points: The number of recent data points to use for testing.
 
     Returns:
-        A dictionary containing the evaluation metrics for each model.
+        A dictionary containing the evaluation metrics for each model,
+        plus data sufficiency metadata.
     """
     print(f"Evaluating models for merchant {merchant_id}, bucket {bucket_type}...")
 
     all_series, category_names = fetch_category_time_series(merchant_id, bucket_type)
     forecasting_service = ForecastingService()
     model_names = forecasting_service._models.keys()
+
+    # Track data sufficiency per category
+    data_points_per_category = {}
+    for category_id, series in all_series.items():
+        data_points_per_category[category_id] = {
+            "category_name": category_names.get(category_id, f"Category {category_id}"),
+            "data_points": len(series)
+        }
+
+    # Minimum data requirements per model
+    model_requirements = {
+        "rolling": 4,
+        "wma": 4,
+        "ses": 4,
+        "snaive": 52,  # Needs 1 year of data
+        "arima": 10
+    }
 
     results = defaultdict(lambda: defaultdict(list))
     for category_id, series in all_series.items():
@@ -81,6 +99,26 @@ def evaluate_models(merchant_id: int, bucket_type: str, test_points: int = 5) ->
             "mape": f"{float(mape):.2f}%",
             "forecasts_generated": int(len(forecasts)),
         }
+
+    # Add data sufficiency metadata
+    min_data_points = min((d["data_points"] for d in data_points_per_category.values()), default=0)
+    max_data_points = max((d["data_points"] for d in data_points_per_category.values()), default=0)
+    
+    # Determine which models are eligible based on data availability
+    eligible_models = []
+    for model, required in model_requirements.items():
+        if min_data_points >= required:
+            eligible_models.append(model)
+    
+    # Add metadata to response (prefix with _ to indicate metadata)
+    metrics["_data_sufficiency"] = {
+        "min_data_points": min_data_points,
+        "max_data_points": max_data_points,
+        "category_count": len(data_points_per_category),
+        "eligible_models": eligible_models,
+        "model_requirements": model_requirements,
+        "recommendation": "rolling" if min_data_points < 10 else ("arima" if min_data_points >= 10 else "ses")
+    }
 
     print("\nEvaluation complete.")
     return metrics

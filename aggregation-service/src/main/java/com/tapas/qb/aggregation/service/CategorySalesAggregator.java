@@ -65,11 +65,10 @@ public class CategorySalesAggregator {
                         return; // all events were already processed
                 }
 
-                // Save processed orders to Postgres for idempotency
+                // Build processed events list (but don't save yet!)
                 var processedEvents = unprocessedEvents.stream()
                                 .map(e -> new ProcessedEvent(e.orderId(), Instant.now()))
                                 .toList();
-                processedEventRepo.saveAll(processedEvents);
 
                 var dayAggregates = new HashMap<AggregationKey, Aggregation>();
                 var weekAggregates = new HashMap<AggregationKey, Aggregation>();
@@ -104,7 +103,16 @@ public class CategorySalesAggregator {
                 logger.info("Writing aggregates to Postgres: {} day, {} week, {} month records",
                                 dayAggregates.size(), weekAggregates.size(), monthAggregates.size());
 
+                // CRITICAL: Write aggregates FIRST, then mark as processed
+                // This prevents undercount if crash occurs between the two operations
+                // (at-least-once delivery: if we crash after aggregates but before marking
+                // processed,
+                // the events will be reprocessed, but idempotent upserts will handle it
+                // correctly)
                 writeToPostgres(dayData, weekData, monthData);
+
+                // Only mark as processed AFTER aggregates are successfully written
+                processedEventRepo.saveAll(processedEvents);
         }
 
         /**

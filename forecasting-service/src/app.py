@@ -92,6 +92,8 @@ class ForecastModelName(str, Enum):
     ses = "ses"
     snaive = "snaive"
     arima = "arima"
+    auto = "auto"        # Per-category best model selection
+    ensemble = "ensemble"  # Weighted average of multiple models
 
 
 forecasting_service = ForecastingService()

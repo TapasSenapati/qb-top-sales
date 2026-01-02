@@ -65,6 +65,17 @@ def compute_confidence(lookback: int) -> str:
     return "HIGH"
 
 
+# Minimum data points required for each model
+MODEL_DATA_REQUIREMENTS = {
+    "rolling": 4,
+    "wma": 4,
+    "ses": 4,
+    "arima": 10,
+    "snaive": 52,  # Needs 1 year of data for seasonal patterns
+}
+
+
+
 class ForecastingService:
     """
     Stateless forecasting service.
@@ -82,6 +93,109 @@ class ForecastingService:
             "snaive": SeasonalNaiveModel(),
             "arima": ARIMAModel(),
         }
+        # Ensemble model weights (higher = more influence)
+        self._ensemble_weights = {
+            "arima": 0.35,
+            "ses": 0.30,
+            "wma": 0.20,
+            "rolling": 0.15,
+        }
+
+    def _has_enough_data(self, model_name: str, data_points: int, bucket_type: str) -> bool:
+        """Check if there's enough data for a given model."""
+        # SNAIVE period varies by bucket type
+        if model_name == "snaive":
+            period = 7 if bucket_type == "DAY" else 52 if bucket_type == "WEEK" else 12
+            return data_points >= period
+        required = MODEL_DATA_REQUIREMENTS.get(model_name, 4)
+        return data_points >= required
+
+    def _evaluate_model_for_category(
+        self, model: ForecastModel, series: List[TimeSeriesPoint], bucket_type: str, category_id: int
+    ) -> float:
+        """Simple one-step-ahead error for model selection."""
+        if len(series) < 5:
+            return float('inf')
+        
+        # Use last point as test, rest as training
+        train_series = series[:-1]
+        actual = series[-1].value
+        
+        try:
+            forecast_value, _ = model.forecast(
+                series=train_series,
+                lookback=4,
+                bucket_type=bucket_type,
+                category_id=category_id,
+                category_name=str(category_id),
+            )
+            if forecast_value is None:
+                return float('inf')
+            # Calculate absolute percentage error
+            if actual == 0:
+                return float('inf') if forecast_value != 0 else 0
+            return abs((actual - forecast_value) / actual) * 100
+        except:
+            return float('inf')
+
+    def _select_best_model_for_category(
+        self, series: List[TimeSeriesPoint], category_id: int, bucket_type: str
+    ) -> Tuple[str, float]:
+        """Evaluate all eligible models for this category and return the best one."""
+        data_points = len(series)
+        
+        # Filter eligible models based on data sufficiency
+        eligible_models = {
+            k: v for k, v in self._models.items()
+            if self._has_enough_data(k, data_points, bucket_type)
+        }
+        
+        if not eligible_models:
+            return "rolling", float('inf')  # Fallback
+        
+        # Find model with lowest error
+        best_model = "rolling"
+        best_error = float('inf')
+        
+        for name, model in eligible_models.items():
+            error = self._evaluate_model_for_category(model, series, bucket_type, category_id)
+            if error < best_error:
+                best_error = error
+                best_model = name
+        
+        return best_model, best_error
+
+    def _ensemble_forecast(
+        self, series: List[TimeSeriesPoint], lookback: int, bucket_type: str, 
+        category_id: int, category_name: str
+    ) -> Tuple[Optional[float], str]:
+        """Weighted average of multiple models."""
+        forecasts = {}
+        total_weight = 0
+        data_points = len(series)
+        
+        for name, model in self._models.items():
+            if name == "snaive":  # Skip SNAIVE in ensemble (too restrictive)
+                continue
+            if not self._has_enough_data(name, data_points, bucket_type):
+                continue
+            try:
+                value, _ = model.forecast(series, lookback, bucket_type, category_id, category_name)
+                if value is not None:
+                    weight = self._ensemble_weights.get(name, 0.1)
+                    forecasts[name] = (value, weight)
+                    total_weight += weight
+            except:
+                pass
+        
+        if not forecasts:
+            return None, "No models succeeded for ensemble"
+        
+        # Calculate weighted average
+        ensemble_value = sum(v * w for v, w in forecasts.values()) / total_weight
+        models_used = ", ".join(forecasts.keys())
+        
+        return round(ensemble_value, 2), f"Ensemble of {len(forecasts)} models: {models_used}"
 
     def _fetch_series(self, merchant_id: int, bucket_type: str, limit_per_category: int = 20) -> Dict[int, List[TimeSeriesPoint]]:
         """
@@ -189,8 +303,8 @@ class ForecastingService:
         results: List[CategoryForecastResult] = []
         messages: List[str] = []
 
-        model_impl = self._models.get(model)
-        if not model_impl:
+        # Validate model for non-special cases
+        if model not in ("auto", "ensemble") and model not in self._models:
             raise HTTPException(status_code=400, detail=f"Model '{model}' not found.")
 
         for category_id, series in series_map.items():
@@ -200,13 +314,41 @@ class ForecastingService:
                 continue
 
             try:
-                forecast_value, message = model_impl.forecast(
-                    series=series,
-                    lookback=lookback,
-                    bucket_type=bucket_type,
-                    category_id=category_id,
-                    category_name=category_name,
-                )
+                # Handle special model modes
+                if model == "auto":
+                    # Per-category best model selection
+                    best_model_name, _ = self._select_best_model_for_category(series, category_id, bucket_type)
+                    model_impl = self._models[best_model_name]
+                    forecast_value, message = model_impl.forecast(
+                        series=series,
+                        lookback=lookback,
+                        bucket_type=bucket_type,
+                        category_id=category_id,
+                        category_name=category_name,
+                    )
+                    used_model_name = best_model_name
+                elif model == "ensemble":
+                    # Weighted ensemble of multiple models
+                    forecast_value, message = self._ensemble_forecast(
+                        series=series,
+                        lookback=lookback,
+                        bucket_type=bucket_type,
+                        category_id=category_id,
+                        category_name=category_name,
+                    )
+                    used_model_name = "ensemble"
+                else:
+                    # Standard single model
+                    model_impl = self._models[model]
+                    forecast_value, message = model_impl.forecast(
+                        series=series,
+                        lookback=lookback,
+                        bucket_type=bucket_type,
+                        category_id=category_id,
+                        category_name=category_name,
+                    )
+                    used_model_name = model_impl.name
+                
                 if message:
                     messages.append(message)
 
@@ -216,7 +358,7 @@ class ForecastingService:
                         category_id=category_id,
                         category_name=category_name,
                         forecast_value=forecast_value,
-                        model=model_impl.name,
+                        model=used_model_name,
                         lookback=lookback,
                         confidence=confidence
                    ))
