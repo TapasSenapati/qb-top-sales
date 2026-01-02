@@ -80,7 +80,11 @@ Instrumentator().instrument(app).expose(app)
 
 
 # --- UI Static Files ---
-static_dir = os.path.join(os.path.dirname(__file__), "static")
+# Static files are in /app/ui/forecasting (Docker) or relative path (local dev)
+static_dir = "/app/ui/forecasting"
+if not os.path.exists(static_dir):
+    # Fallback for local development
+    static_dir = os.path.join(os.path.dirname(__file__), "..", "..", "ui", "forecasting")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 

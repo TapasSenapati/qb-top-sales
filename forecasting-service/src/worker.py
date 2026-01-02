@@ -98,14 +98,23 @@ def run_forecast_job():
             # Span will automatically record exception
 
 if __name__ == "__main__":
-    # Wait for DB to be ready
-    time.sleep(10) 
+    # Wait for DB to be ready (reduced from 10s since depends_on waits for healthy)
+    time.sleep(5) 
     
     scheduler = BlockingScheduler()
-    # Run every minute for demonstration purposes
-    scheduler.add_job(run_forecast_job, 'interval', seconds=60)
     
-    logger.info("Forecasting Worker started. Running every 60 seconds.")
+    # Run immediately on startup, then every 60 seconds
+    # The next_run_time=datetime.now() ensures immediate first execution
+    scheduler.add_job(
+        run_forecast_job, 
+        'interval', 
+        seconds=60,
+        next_run_time=datetime.now(),  # Run immediately!
+        misfire_grace_time=30,  # Allow job to run up to 30s late
+        coalesce=True  # If multiple runs were missed, only run once
+    )
+    
+    logger.info("Forecasting Worker started. Running immediately, then every 60 seconds.")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

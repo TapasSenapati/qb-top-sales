@@ -148,6 +148,8 @@ services:
       POSTGRES_USER: qb_user
       POSTGRES_PASSWORD: qb_password
       ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+    volumes:
+      - ./ui/forecasting:/app/ui/forecasting:ro
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8090/health" ]
       interval: 10s
