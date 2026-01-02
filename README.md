@@ -6,10 +6,10 @@ A multi-service forecasting pipeline for commerce sales analytics.
 
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
 
 # Reset and rebuild everything
-mvn clean package && docker-compose down -v && docker-compose build --no-cache && docker-compose up -d
+mvn clean package && docker compose down -v && docker compose build --no-cache && docker compose up -d
 ```
 
 ## 📖 Documentation
