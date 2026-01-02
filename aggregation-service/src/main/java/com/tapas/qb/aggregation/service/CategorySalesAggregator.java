@@ -2,8 +2,8 @@ package com.tapas.qb.aggregation.service;
 
 import com.tapas.qb.aggregation.dto.OrderEventPayload;
 import com.tapas.qb.aggregation.repository.CategorySalesAggRepository;
-import com.tapas.qb.aggregation.repository.DuckDBAnalyticsRepository;
 import com.tapas.qb.aggregation.repository.ProcessedEvent;
+import com.tapas.qb.aggregation.repository.ProcessedEventRepository;
 import com.tapas.qb.aggregation.repository.UpsertData;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
@@ -23,10 +23,9 @@ import java.util.Map;
  * Aggregates order events into time-bucketed sales summaries (DAY, WEEK,
  * MONTH).
  * 
- * DUAL-WRITE ARCHITECTURE:
- * - DuckDB: For forecasting-worker batch processing (analytical workloads)
- * - Postgres: For real-time API queries via /api/top-categories (low-latency
- * reads)
+ * SINGLE-WRITE ARCHITECTURE:
+ * - PostgreSQL: All data written to forecasting schema for both real-time
+ * API queries and forecasting-worker batch processing
  * 
  * CURRENCY: Single currency per merchant is enforced at schema level
  * (ingestion.merchants.currency). Amounts are summed directly without
@@ -36,12 +35,12 @@ import java.util.Map;
 public class CategorySalesAggregator {
         private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(CategorySalesAggregator.class);
 
-        private final DuckDBAnalyticsRepository duckDBRepo;
+        private final ProcessedEventRepository processedEventRepo;
         private final CategorySalesAggRepository postgresRepo;
 
-        public CategorySalesAggregator(DuckDBAnalyticsRepository duckDBRepo,
+        public CategorySalesAggregator(ProcessedEventRepository processedEventRepo,
                         CategorySalesAggRepository postgresRepo) {
-                this.duckDBRepo = duckDBRepo;
+                this.processedEventRepo = processedEventRepo;
                 this.postgresRepo = postgresRepo;
         }
 
@@ -52,8 +51,11 @@ public class CategorySalesAggregator {
                                 .map(OrderEventPayload::orderId)
                                 .toList();
 
-                // Check idempotency against DuckDB
-                var existingOrderIds = duckDBRepo.findExistingOrderIds(orderIds);
+                // Check idempotency against Postgres (forecasting.processed_events)
+                var existingEvents = processedEventRepo.findAllById(orderIds);
+                var existingOrderIds = existingEvents.stream()
+                                .map(ProcessedEvent::getOrderId)
+                                .toList();
 
                 var unprocessedEvents = events.stream()
                                 .filter(e -> !existingOrderIds.contains(e.orderId()))
@@ -63,11 +65,11 @@ public class CategorySalesAggregator {
                         return; // all events were already processed
                 }
 
-                // Save processed orders to DuckDB for idempotency
+                // Save processed orders to Postgres for idempotency
                 var processedEvents = unprocessedEvents.stream()
                                 .map(e -> new ProcessedEvent(e.orderId(), Instant.now()))
                                 .toList();
-                duckDBRepo.saveProcessedOrders(processedEvents);
+                processedEventRepo.saveAll(processedEvents);
 
                 var dayAggregates = new HashMap<AggregationKey, Aggregation>();
                 var weekAggregates = new HashMap<AggregationKey, Aggregation>();
@@ -92,22 +94,16 @@ public class CategorySalesAggregator {
                         }
                 }
 
-                // Convert to UpsertData for DuckDB
+                // Convert to UpsertData
                 var dayData = toUpsertData(dayAggregates, ChronoUnit.DAYS);
                 var weekData = toUpsertData(weekAggregates, 7, ChronoUnit.DAYS);
                 var monthData = toUpsertData(monthAggregates, 1, ChronoUnit.MONTHS);
 
-                // === DUAL-WRITE: Write to BOTH DuckDB and Postgres ===
+                // === SINGLE-WRITE: Write ONLY to Postgres ===
 
-                logger.info("Writing aggregates - DuckDB + Postgres: {} day, {} week, {} month records",
+                logger.info("Writing aggregates to Postgres: {} day, {} week, {} month records",
                                 dayAggregates.size(), weekAggregates.size(), monthAggregates.size());
 
-                // 1. Write to DuckDB (for forecasting)
-                duckDBRepo.bulkUpsert("DAY", dayData);
-                duckDBRepo.bulkUpsert("WEEK", weekData);
-                duckDBRepo.bulkUpsert("MONTH", monthData);
-
-                // 2. Write to Postgres (for API queries)
                 writeToPostgres(dayData, weekData, monthData);
         }
 
@@ -150,9 +146,9 @@ public class CategorySalesAggregator {
 
                         logger.debug("Successfully wrote aggregates to Postgres");
                 } catch (Exception e) {
-                        logger.error("Failed to write aggregates to Postgres (DuckDB write succeeded)", e);
-                        // Don't throw - DuckDB is the source of truth for forecasting
-                        // Postgres failure shouldn't stop the pipeline
+                        logger.error("Failed to write aggregates to Postgres", e);
+                        // Re-throw to ensure transaction rollback
+                        throw e;
                 }
         }
 

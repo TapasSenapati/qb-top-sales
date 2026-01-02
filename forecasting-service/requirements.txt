@@ -11,5 +11,9 @@ statsmodels==0.14.2
 psycopg2-binary==2.9.9
 APScheduler==3.10.4
 
-# Analytical database
-duckdb>=1.0.0
+# Observability
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-zipkin
+opentelemetry-instrumentation-fastapi
+prometheus-fastapi-instrumentator

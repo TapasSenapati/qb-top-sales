@@ -15,15 +15,17 @@ spring:
         health-check-interval: 15s
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/qb_db
-    username: qb_user
-    password: qb_password
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/qb_db}
+    username: ${SPRING_DATASOURCE_USERNAME:qb_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:qb_password}
 
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    template:
+      observation-enabled: true
 
   jpa:
     hibernate:
@@ -33,10 +35,16 @@ spring:
         default_schema: ingestion
 
 management:
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: "http://zipkin:9411/api/v2/spans"
   endpoints:
     web:
       exposure:
-        include: health, info
+        include: health, info, metrics, prometheus
   endpoint:
     health:
       show-details: always

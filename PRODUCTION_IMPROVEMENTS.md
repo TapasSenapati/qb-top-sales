@@ -31,7 +31,7 @@ event.setProcessed(true);  // Mark after ack
 
 ### Current Implementation
 - **API layer**: `externalOrderId` (client-provided UUID) prevents duplicate orders
-- **Aggregation layer**: `orderId` in DuckDB `processed_events` prevents reprocessing
+- **Aggregation layer**: `orderId` in PostgreSQL `processed_events` prevents reprocessing
 
 ### Production Improvements
 
@@ -69,27 +69,28 @@ event.setProcessed(true);  // Mark after ack
 
 ### Current Issues
 
-#### DuckDB Single-Writer
+#### PostgreSQL Concurrency
 ```java
-// Multiple services write to same DuckDB file
-aggregation-service -> /data/forecasting.duckdb
-forecasting-worker  -> /data/forecasting.duckdb  // Contention!
+// PostgreSQL handles concurrent writes with proper transaction isolation
+// Both services write to same PostgreSQL database:
+aggregation-service -> PostgreSQL forecasting schema
+forecasting-worker  -> PostgreSQL forecasting schema  // Transactions prevent contention
 ```
 
-#### Production Fixes
-- Use file locking or writer queue
-- Partition by service: forecasting-worker writes forecasts, aggregation writes aggregates
-- Use MotherDuck (managed DuckDB with proper concurrency)
+#### Production Enhancements
+- Use connection pooling (HikariCP) for efficient connection management
+- Consider read replicas for heavy read workloads
+- Implement row-level locking for critical updates
 
 #### Aggregation Order Bug
 ```java
 // Current: Mark processed BEFORE writing aggregates
-duckDBRepo.saveProcessedOrders(processedEvents);  // ❌ First
-duckDBRepo.bulkUpsert(...);  // Second - crash here = undercount!
+processedEventRepository.saveAll(processedEvents);  // ❌ First
+categorySalesAggRepository.bulkUpsert(...);  // Second - crash here = undercount!
 
-// Fix: Write aggregates FIRST, then mark processed
-duckDBRepo.bulkUpsert(...);  // First
-duckDBRepo.saveProcessedOrders(processedEvents);  // ❌ Second
+// Fix: Write aggregates FIRST, then mark processed (in same transaction)
+categorySalesAggRepository.bulkUpsert(...);  // First
+processedEventRepository.saveAll(processedEvents);  // Second
 ```
 
 ---
@@ -153,7 +154,7 @@ public void consume(String payload) { ... }
 
 ### Current Implementation
 - Basic logging (`log.info`, `log.error`)
-- Health endpoints (`/actuator/health`, `/health/duckdb`)
+- Health endpoints (`/actuator/health`, `/health/postgres`)
 
 ### Production Improvements
 

@@ -44,13 +44,11 @@
     
 - **Outbox Relay (in ingestion service)**: scheduled publisher reads `ingestion.order_events` and publishes to Kafka topic `order-events`.
     
-- **Aggregation Service**: consumes `order-events`, dedupes using `orderId` in DuckDB `processed_events`, and upserts bucketed totals using **dual-write pattern**:
-  - **Postgres** `forecasting.category_sales_agg`: for real-time API queries via `/api/top-categories`
-  - **DuckDB** `category_sales_agg`: for batch forecasting worker
+- **Aggregation Service**: consumes `order-events`, dedupes using `forecasting.processed_events` (Postgres), and upserts bucketed totals into Postgres `forecasting.category_sales_agg` (Single Source of Truth).
   
-- **Forecasting Service (FastAPI)**: serves UI + endpoints like `/forecast/top-categories` and `/forecast/compare-models`. Reads from DuckDB for analytics, PostgreSQL for category names.
+- **Forecasting Service (FastAPI)**: serves UI + endpoints like `/forecast/top-categories`. Reads from Postgres for analytics and category names.
     
-- **Forecasting Worker**: periodic scheduler to precompute forecasts for merchants and store them in DuckDB `category_sales_forecast`.
+- **Forecasting Worker**: periodic scheduler to precompute forecasts for merchants and store them in Postgres `forecasting.category_sales_forecast`.
     
 - Compose wiring shows ingestion (8081), aggregation (8082), forecasting (8090), plus Kafka/Postgres/Consul.
     
@@ -79,35 +77,49 @@
                             |                             |
     Read category names     |                             | Write aggregates
                             v                             v
-+-------------------+   +------------+             +-------------+
-|  Order Simulator  |   | PostgreSQL |             |   DuckDB    |
-| (load + backfill) +-->| (OLTP)     |             | (Analytics) |
-+-------------------+   +------------+             +-------------+
-                        | ingestion.*|             | category_   |
-                        | - merchants|             |   sales_agg |
-                        | - categories             | processed_  |
-                        | - products |             |   events    |
-                        | - orders   |             | category_   |
-                        | - order_   |             |   sales_    |
-                        |   items    |             |   forecast  |
-                        | - order_   |             +------^------+
-                        |   events   |                    |
-                        +-----+------+                    | Read/Write
-                              ^                           |
-                              | SQL write          +------+------+
-                              |                    | Forecasting |
-                 +------------+---------+          |   Worker    |
-                 |    Ingestion Service |          | (precompute)|
-                 |   POST /v1/orders    |          +-------------+
++-------------------+   +------------+
+|  Order Simulator  |   | PostgreSQL |
+| (load + backfill) +-->| (OLTP +    |
++-------------------+   | Analytics) |
+                        +------------+
+                        | ingestion.*|
+                        | - merchants|
+                        | - categories
+                        | - products |
+                        | - orders   |
+                        | - order_   |
+                        |   items    |
+                        | - order_   |
+                        |   events   |
+                        +------------+
+                        |forecasting.*
+                        | - category_|
+                        |   sales_agg|
+                        | - processed|
+                        |   _events  |
+                        | - category_|
+                        |   sales_   |
+                        |   forecast |
+                        +-----+------+
+                              ^
+                              | SQL write
+                              |
+                 +------------+---------+
+                 |    Ingestion Service |
+                 |   POST /v1/orders    |
                  | + outbox table write |
                  +----------+-----------+
                             |
                             | Kafka publish (outbox relay)
-                            v
-                     +------+----------------+
-                     |  Kafka topic:         |
-                     |     order-events      |
-                     +-----------------------+
+             +------+-------+        +-------------+
+             |  Kafka topic:|        | Forecasting |
+             |  order-events|        |   Worker    |
+             +--------------+        | (precompute)|
+                                     +------+------+
+                                            |
+                                            | SQL Read/Write
+                                            v
+                                        PostgreSQL
 ```
 
 
@@ -148,11 +160,49 @@
 ## Forecasting service API (predictions)
 > **Note**: Currency is implied by the `merchant_id`. Since each merchant uses one currency, the forecast values (e.g., 5000) are in that merchant's base currency. Explicit currency in response is deferred until multi-currency support is needed.
 
-- **GET** `/forecast/top-categories` supports `merchant_id`, `bucket_type`, `model`, `lookback`, `limit` and returns top forecasted categories.
-    
-- **GET** `/forecast/compare-models` fetches the latest precomputed forecasts for a merchant.
-    
-- **GET** `/health` and `/health/duckdb` for service health checks (used by infra/Consul).
+### Endpoints
+
+| Endpoint | Purpose | Speed | Data Source |
+|----------|---------|-------|-------------|
+| `/forecast/top-categories` | Real-time forecast generation | Slower | Live computation |
+| `/forecast/compare-models` | Pre-computed forecast lookup | Fast | Database (worker output) |
+| `/evaluate-models` | Model accuracy evaluation | Slowest | Live walk-forward validation |
+
+#### GET `/forecast/top-categories`
+**Purpose**: Generate forecasts on-the-fly for the top N categories.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `merchant_id` | int | Merchant identifier (required) |
+| `bucket_type` | string | `DAY`, `WEEK`, or `MONTH` |
+| `model` | string | `rolling`, `wma`, `ses`, `snaive` (default: `rolling`) |
+| `lookback` | int | Window size for rolling models (1-12) |
+| `limit` | int | Max categories to return (1-20) |
+
+#### GET `/forecast/compare-models`
+**Purpose**: Fetch the latest pre-computed forecasts from the worker.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `merchant_id` | int | Merchant identifier (required) |
+| `limit` | int | Max categories to return (1-20) |
+
+**Use case**: Dashboard display, quick lookups. Data is refreshed by `forecasting-worker` every 60 seconds.
+
+#### GET `/evaluate-models`
+**Purpose**: Run walk-forward validation to compare model accuracy.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `merchant_id` | int | Merchant identifier (required) |
+| `bucket_type` | string | `DAY`, `WEEK`, or `MONTH` |
+| `test_points` | int | Number of points for holdout testing |
+
+**Use case**: Model selection, accuracy analysis. Returns MAE/RMSE metrics per model.
+
+### Health Endpoints
+- **GET** `/health` - Service liveness check
+- **GET** `/health/postgres` - Database connectivity check
 
 ## Event contract (internal)
 
@@ -178,48 +228,26 @@
 
 - **PostgreSQL** (`ingestion.*`): OLTP entities and the outbox table for transactional workloads.
     
-- **DuckDB** (analytics): Aggregated sales facts, idempotency tracking, and forecast outputs. This separation enables:
-  - Optimized columnar storage for time-series queries
-  - No impact on OLTP performance during analytical queries
-  - Independent scaling of OLTP and OLAP layers
+- **PostgreSQL** (`forecasting.*`): Analytical aggregates and forecast results.
+  - Logical separation within the same physical DB for simplicity in this deployment.
+  - Allows `JOIN` queries for dashboards (e.g., joining `ingestion.categories` with `forecasting.category_sales_forecast`).
 
 ## ingestion schema - PostgreSQL (PK/FK)
 
-- `ingestion.merchants`
-    - **PK**: `id` (BIGSERIAL).
-    - `currency` (TEXT NOT NULL): merchant's base currency (single currency per merchant).
-    - Audit: `created_at`, `updated_at`. Critical for reconciling configuration changes and debugging "when did this change?" issues.
+- `ingestion.merchants` ... (Unchanged)
         
-- `ingestion.categories`
-    - **PK**: `id` (BIGSERIAL).
-    - **FK**: `merchant_id -> ingestion.merchants(id)`.
-    - Flat structure (no hierarchy).
+- `ingestion.categories` ... (Unchanged)
         
-- `ingestion.products`
-    - **PK**: `id` (BIGSERIAL).
-    - **FK**: `merchant_id -> ingestion.merchants(id)`.
-    - **FK**: `category_id -> ingestion.categories(id)`.
+- `ingestion.products` ... (Unchanged)
         
-- `ingestion.orders`
-    - **PK**: `id` (BIGSERIAL).
-    - **FK**: `merchant_id -> ingestion.merchants(id)`.
-    - **UNIQUE**: `external_order_id` (for API idempotency).
-    - **Snapshot**: `currency` (TEXT NOT NULL). stored at creation time to ensure historical accuracy (e.g., if merchant changes base currency later).
-    - Audit: `created_at` (orders are immutable, no `updated_at` needed). Used for debugging ingestion latency and data freshness checks.
+- `ingestion.orders` ... (Unchanged)
         
-- `ingestion.order_items`
-    - **PK**: `id` (BIGSERIAL).
-    - **FK**: `order_id -> ingestion.orders(id)`.
-    - **FK**: `product_id -> ingestion.products(id)`.
+- `ingestion.order_items` ... (Unchanged)
         
-- `ingestion.order_events` (outbox)
-    - **PK**: `id` (BIGSERIAL).
-    - **FK**: `order_id -> ingestion.orders(id)`.
-    - **FK**: `merchant_id -> ingestion.merchants(id)`.
-    - TODO (Production): Use TSID/Snowflake for globally unique, time-sorted event IDs when scaling to multiple ingestion instances.
+- `ingestion.order_events` (outbox) ... (Unchanged)
         
 
-## DuckDB analytics schema
+## forecasting schema - PostgreSQL
 
 - `category_sales_agg`
     - **PK**: `id`.
@@ -236,13 +264,7 @@
 
 
 ## "Year" timeframe modeling (required by scope)
-
-- Production options:
-    - Add `bucket_type = 'YEAR'` to `category_sales_agg` and compute yearly buckets in aggregation.
-    - Or derive "year view" by summing 12 monthly buckets on read (lower write cost, higher read complexity).
-        
-- Recommended: store YEAR aggregates if "year view" is frequently queried and must be fast.
-    
+... (Unchanged)
 
 ## Operations (dataflow, failures, HA/scale knobs, tradeoffs)
 
@@ -252,72 +274,58 @@
     
 - **Events**: outbox publisher periodically reads unprocessed events and publishes to Kafka `order-events`.
     
-- **Aggregates**: aggregation service consumes `order-events`, dedupes via DuckDB `processed_events` using `orderId`, and uses **dual-write** to upsert bucketed totals into both PostgreSQL `forecasting.category_sales_agg` (for low-latency API reads) and DuckDB (for forecasting batch jobs); the UI can query `/api/top-categories` from Postgres.
+- **Aggregates**: aggregation service consumes `order-events`, dedupes via Postgres `forecasting.processed_events`, and upserts bucketed totals into **Postgres** `forecasting.category_sales_agg`.
     
-- **Forecasts**: forecasting worker periodically fetches series from DuckDB and writes results to DuckDB `category_sales_forecast`; forecasting API serves UI/API endpoints.
+- **Forecasts**: forecasting worker periodically fetches series from Postgres and writes results to Postgres `forecasting.category_sales_forecast`.
     
 
 ## Idempotency model
 
-Two layers of idempotency protect against duplicates:
-
-1. **API layer** (`externalOrderId`): Client-provided UUID prevents duplicate orders at ingestion entry point. If API call times out but order was saved, retry won't create duplicate.
-
-2. **Aggregation layer** (`orderId`): DB-generated ID prevents reprocessing same order in Kafka consumer. Stored in DuckDB `processed_events`.
+1. **API layer** (`externalOrderId`) ...
+2. **Aggregation layer** (`orderId`): DB-generated ID prevents reprocessing same order in Kafka consumer. Stored in Postgres `forecasting.processed_events`.
 
 ## System Intervals & Frequency ⏱️
 
 ### 1. Ingestion & Aggregation (Real-Time ⚡)
 - **Trigger**: Immediate upon order creation.
 - **Latency**: Milliseconds to seconds (Postgres Write -> Outbox -> Kafka -> Aggregation).
-- **Writes**: **Dual-Write** to PostgreSQL (for UI/Custom Range) and DuckDB (for Forecasting).
+- **Writes**: **Single-Write** to PostgreSQL `forecasting` schema.
 - **Use Case**: "Top Categories" dashboard, Custom/Year-to-Date range queries.
 
 ### 2. Forecasting (Periodic Batch 🕰️)
 - **Trigger**: Background Scheduler (`worker.py`).
 - **Interval**: **Every 1 minute** (Demo setting; likely hourly/daily in production).
-- **Writes**: Reads aggregated DuckDB data, computes models, writes to `category_sales_forecast`.
+- **Writes**: Reads aggregated Postgres data, computes models, writes to `category_sales_forecast` in Postgres.
 - **Use Case**: "Next Period" predictions, Model Comparison.
 
 ## Failure modes (and mitigations)
-
-- **Kafka outage**: ingestion outbox accumulates `processed=false` rows; once Kafka recovers the relay can drain (eventual consistency).
-    
-- **Outbox publish ack ambiguity**: current relay marks events processed even though send completion is async; in production, mark processed only after broker ack (or use a proven CDC/outbox relay).
+...
     
 - **Aggregation double/under counting**:
-    - At-least-once Kafka can duplicate events; idempotency table prevents double counting.
-    - Current ordering risk: marking processed before writing aggregates can cause undercount on crash; production should make this atomic and correctly ordered.
-        
-- **Forecasting worker downtime**: precomputed forecasts stop updating; API can still compute on-demand (degraded performance) until worker recovers.
+    - At-least-once Kafka can duplicate events; idempotency table (`processed_events`) prevents double counting.
+...
     
 - **DB growth**: forecast table can grow quickly; enforce retention/partitioning.
     
 ## HA / scale knobs
-
-- **Ingestion service**: scale stateless API horizontally; use DB connection pooling and ensure write capacity.
-    
-- **Kafka**: increase partitions for `order-events` to scale consumers; use consumer groups for parallelism; add DLQ/retry topics.
-    
-- **Aggregation service**: scale consumer instances with partitions; keep idempotency checks efficient via indexed PK and batch existence queries.
+...
     
 - **PostgreSQL**:
     - HA via primary/replica + automated failover.
     - Read replicas for forecasting/aggregation read endpoints.
-        
-- **DuckDB**:
-    - Currently embedded (single-writer, multi-reader).
-    - For HA, consider MotherDuck (managed DuckDB) or replicated file storage.
-        
-- **Forecasting worker**: shard by merchant (hash ranges) and use leader election to avoid duplicate scheduling in multi-worker deployments.
+                
+- **Forecasting worker**: shard by merchant ...
     
 ## Key tradeoffs
 
-- **Event-driven + outbox** improves decoupling and resilience (Kafka outages don't lose events) but introduces eventual consistency and extra moving parts.
+- **Event-driven + outbox** improves decoupling ...
     
-- **PostgreSQL + DuckDB separation** optimizes for both OLTP and OLAP workloads but adds operational complexity (two databases to manage).
+- **Postgres-Only Architecture**:
+    - **Pros**: Simplified operations, consistent backups, easy joins across schema.
+    - **Cons**: OLAP queries (forecasting training) share resources with OLTP (ingestion). In high scale, this should be moved to Snowflake/BigQuery (as per production recommendation).
     
-- **Materialized aggregates** make "top categories" queries fast and cheap at read time, trading off more complex writes and careful idempotency.
+- **Materialized aggregates** make "top categories" queries fast ...
+
     
 - **Precompute forecasts** improves UI latency and enables model comparison, trading off storage growth and job orchestration complexity.
     

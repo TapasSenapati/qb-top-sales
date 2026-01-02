@@ -7,6 +7,8 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 
+import io.micrometer.observation.ObservationRegistry;
+
 @Configuration
 public class KafkaConsumerConfig {
 
@@ -26,6 +28,7 @@ public class KafkaConsumerConfig {
         factory.setConsumerFactory(consumerFactory);
         factory.setConcurrency(1); // keep deterministic for now
         factory.setBatchListener(true);
+        factory.getContainerProperties().setObservationEnabled(true);
 
         return factory;
     }

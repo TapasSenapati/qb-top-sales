@@ -1,9 +1,10 @@
-from typing import List, Dict, Optional, Protocol, Tuple
+from typing import List, Dict, Optional, Protocol, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
 from fastapi import HTTPException
 import pandas as pd
 import logging
+from .postgres_client import get_postgres_client
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -67,11 +68,12 @@ def compute_confidence(lookback: int) -> str:
 class ForecastingService:
     """
     Stateless forecasting service.
-    - Uses pre-aggregated time series
-    - Strategy-based model selection (rolling,wma ,etc ...)
+    - Uses pre-aggregated time series from Postgres
+    - Strategy-based model selection
     """
     def __init__(self, default_lookback: int = 4):
         self.default_lookback = default_lookback
+        self.pg_client = get_postgres_client()
         # Registry of forecasting models
         self._models: Dict[str, ForecastModel] = {
             "rolling": RollingAverageModel(),
@@ -80,43 +82,76 @@ class ForecastingService:
             "snaive": SeasonalNaiveModel(),
         }
 
+    def _fetch_series(self, merchant_id: int, bucket_type: str, limit_per_category: int = 20) -> Dict[int, List[TimeSeriesPoint]]:
+        """
+        Fetches time-series data from Postgres (forecasting.category_sales_agg).
+        Filters by merchant_id to only return categories belonging to that merchant.
+        """
+        query = """
+            SELECT merchant_id, category_id, bucket_start, total_sales_amount
+            FROM forecasting.category_sales_agg
+            WHERE merchant_id = %s AND bucket_type = %s
+            ORDER BY category_id, bucket_start ASC
+        """
+        
+        category_series: Dict[int, List[TimeSeriesPoint]] = {}
+        
+        try:
+            with self.pg_client.cursor() as cur:
+                cur.execute(query, (merchant_id, bucket_type))
+                rows = cur.fetchall()
+                
+                for row in rows:
+                    cat_id = row['category_id']
+                    point = TimeSeriesPoint(
+                        bucket_start=row['bucket_start'],
+                        value=float(row['total_sales_amount'])
+                    )
+                    if cat_id not in category_series:
+                        category_series[cat_id] = []
+                    category_series[cat_id].append(point)
+                    
+        except Exception as e:
+            logger.error(f"Failed to fetch series from Postgres: {e}")
+            raise
+            
+        return category_series
+
     def run_all_models(
         self,
-        category_series: Dict[int, List[TimeSeriesPoint]],
+        merchant_id: int,
+        category_series: Dict[int, List[TimeSeriesPoint]], # Can pass in if already fetched, or None
         lookback: int,
         limit: int,
     ) -> Dict[int, Dict[str, Dict[str, ModelForecast]]]:
         """
-        Run all available models for each category and return the results.
-        This is used by the background scheduler.
+        Run all available models using data from Postgres.
         """
         all_results = {}
-        bucket_type = "DAY"  # Hardcoded as per our strategy for the background job
+        bucket_type = "DAY" 
+        
+        # If series not provided, fetch them (Worker flow usually fetches them)
+        if category_series is None:
+             category_series = self._fetch_series(merchant_id, bucket_type)
 
         for category_id, series in category_series.items():
             category_results = {"models": {}}
             for model_name, model_impl in self._models.items():
                 try:
-                    # Note: The existing forecast methods return a single next value.
-                    # For this implementation, we will wrap it in a list to represent a 1-step forecast.
-                    # A future enhancement could be to have models forecast multiple steps.
                     forecast_value, message = model_impl.forecast(
                         series=series,
                         lookback=lookback,
                         bucket_type=bucket_type,
                         category_id=category_id,
-                        category_name=str(category_id), # Name is not critical here
+                        category_name=str(category_id), 
                     )
                     
                     forecast_points = None
                     if forecast_value is not None:
-                        # Determine the next bucket_start. This is a simplification.
                         last_bucket_start = series[-1].bucket_start
                         next_bucket_start = last_bucket_start + pd.Timedelta(days=1)
                         forecast_points = [TimeSeriesPoint(bucket_start=next_bucket_start, value=forecast_value)]
 
-                    # MAE is not calculated in this flow, so we leave it as None.
-                    # It's part of the 'evaluate-models' flow.
                     category_results["models"][model_name] = ModelForecast(
                         forecast=forecast_points,
                         mae=None 
@@ -134,7 +169,8 @@ class ForecastingService:
 
     def forecast_categories(
         self,
-        category_series: Dict[int, List[TimeSeriesPoint]],
+        merchant_id: int,
+        category_series: Any, # Ignored in Postgres version, we fetch internally
         category_names: Dict[int, str],
         bucket_type: str,
         model: str = "rolling",
@@ -142,31 +178,24 @@ class ForecastingService:
         limit: int = 5
     ) -> ForecastResult:
         """
-        Forecast next-period sales per category.
+        Forecast next-period sales per category for a specific merchant.
         """
-        if not category_series:
-            return ForecastResult(forecasts=[], messages=["No historical sales data found for the selected Merchant ID and Time Bucket."])
-
         lookback = lookback or self.default_lookback
+        
+        # Fetch fresh data from Postgres filtered by merchant
+        series_map = self._fetch_series(merchant_id, bucket_type)
+        
         results: List[CategoryForecastResult] = []
         messages: List[str] = []
 
         model_impl = self._models.get(model)
         if not model_impl:
-            available = ", ".join(self._models.keys())
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Forecasting model '{model}' is not available. "
-                    f"Available models: {available}"
-                )
-            )
+            raise HTTPException(status_code=400, detail=f"Model '{model}' not found.")
 
-        for category_id, series in category_series.items():
+        for category_id, series in series_map.items():
             category_name = category_names.get(category_id, str(category_id))
             
             if not series:
-                messages.append(f"Skipping category '{category_name}': No sales data available.")
                 continue
 
             try:
@@ -180,28 +209,20 @@ class ForecastingService:
                 if message:
                     messages.append(message)
 
+                if forecast_value is not None:
+                   confidence = compute_confidence(lookback)
+                   results.append(CategoryForecastResult(
+                        category_id=category_id,
+                        category_name=category_name,
+                        forecast_value=forecast_value,
+                        model=model_impl.name,
+                        lookback=lookback,
+                        confidence=confidence
+                   ))
+
             except Exception as e:
                 logger.error(f"Prediction failed for category {category_id}: {e}")
-                messages.append(f"An unexpected error occurred for category '{category_name}'.")
                 continue
-
-            if forecast_value is None:
-                continue
-
-            confidence = compute_confidence(lookback)
-            results.append(
-                CategoryForecastResult(
-                    category_id=category_id,
-                    category_name=category_name,
-                    forecast_value=forecast_value,
-                    model=model_impl.name,
-                    lookback=lookback,
-                    confidence=confidence
-                )
-            )
-        
-        if not results and not messages:
-             messages.append(f"Not enough historical data to generate a forecast with the selected model ('{model}') and lookback period ({lookback}). Try a smaller lookback value or a different model.")
 
         # Sort by forecasted value descending
         results.sort(key=lambda r: r.forecast_value, reverse=True)
@@ -221,9 +242,7 @@ class RollingAverageModel:
         category_name: str,
     ) -> Tuple[Optional[float], Optional[str]]:
         if lookback <= 0 or len(series) < lookback:
-            message = (f"Skipping category '{category_name}': "
-                       f"Not enough data for 'rolling' model (needs {lookback}, has {len(series)}).")
-            return None, message
+            return None, f"Not enough data for rolling average (needs {lookback}, has {len(series)})"
 
         values = [p.value for p in series[-lookback:]]
         return sum(values) / lookback, None
@@ -240,9 +259,7 @@ class WeightedMovingAverageModel:
         category_name: str,
     ) -> Tuple[Optional[float], Optional[str]]:
         if lookback <= 0 or len(series) < lookback:
-            message = (f"Skipping category '{category_name}': "
-                       f"Not enough data for 'wma' model (needs {lookback}, has {len(series)}).")
-            return None, message
+            return None, f"Not enough data for WMA (needs {lookback}, has {len(series)})"
 
         values = [p.value for p in series[-lookback:]]
         weights = range(1, lookback + 1)
@@ -262,22 +279,17 @@ class ExponentialSmoothingModel:
         category_name: str,
     ) -> Tuple[Optional[float], Optional[str]]:
         if len(series) < 2:
-            message = (f"Skipping category '{category_name}': "
-                       f"Not enough data for 'ses' model (needs at least 2 points, has {len(series)}).")
-            return None, message
+            return None, "Not enough data for SES (needs 2+)"
         
         try:
             from statsmodels.tsa.api import SimpleExpSmoothing
-            
             values = [p.value for p in series]
             model = SimpleExpSmoothing(values, initialization_method="estimated").fit()
             return model.forecast(1)[0], None
-        
         except ImportError:
-            raise HTTPException(status_code=501, detail="Statsmodels library not installed. Cannot use 'ses' model.")
-        except Exception as e:
-            logger.error(f"Exponential smoothing failed for category {category_id}: {e}")
-            return None, f"Error during 'ses' forecast for category '{category_name}'."
+            raise HTTPException(status_code=501, detail="Statsmodels not installed")
+        except Exception:
+            return None, "SES calculation failed"
 
 class SeasonalNaiveModel:
     name = "snaive"
@@ -290,22 +302,9 @@ class SeasonalNaiveModel:
         category_id: int,
         category_name: str,
     ) -> Tuple[Optional[float], Optional[str]]:
-        seasonal_period = self._get_seasonal_period(bucket_type)
-        if seasonal_period is None:
-            return None, f"Seasonal naive model ('snaive') is not applicable for bucket type '{bucket_type}'."
+        period = 7 if bucket_type == "DAY" else 52 if bucket_type == "WEEK" else 12
+        
+        if len(series) < period:
+            return None, f"Not enough data for Seasonal Naive (needs {period}, has {len(series)})"
 
-        if len(series) < seasonal_period:
-            message = (f"Skipping category '{category_name}': Not enough data for 'snaive' "
-                       f"(needs {seasonal_period} points for seasonality, has {len(series)}).")
-            return None, message
-
-        return series[-seasonal_period].value, None
-
-    def _get_seasonal_period(self, bucket_type: str) -> Optional[int]:
-        if bucket_type == "DAY":
-            return 7
-        if bucket_type == "WEEK":
-            return 52
-        if bucket_type == "MONTH":
-            return 12
-        return None
+        return series[-period].value, None

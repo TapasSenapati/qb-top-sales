@@ -50,6 +50,12 @@ services:
     ports:
       - "29092:29092"
 
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+
   ingestion-service:
     build:
       context: ./ingestion-service
@@ -95,8 +101,6 @@ services:
       context: ./aggregation-service
       dockerfile: Dockerfile
     container_name: aggregation-service
-    volumes:
-      - duckdb-data:/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,7 +113,6 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/qb_db
       SPRING_DATASOURCE_USERNAME: qb_user
       SPRING_DATASOURCE_PASSWORD: qb_password
-      DUCKDB_PATH: /data/forecasting.duckdb
     ports:
       - "8082:8082"
     healthcheck:
@@ -125,9 +128,6 @@ services:
     container_name: forecasting-service
     ports:
       - "8090:8090"
-    volumes:
-      - duckdb-data:/data
-      - ./db:/app/db:ro
     depends_on:
       consul:
         condition: service_started
@@ -135,17 +135,19 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      zipkin:
+        condition: service_started
     environment:
       CONSUL_HOST: consul
       CONSUL_PORT: 8500
       SERVICE_NAME: forecasting-service
       SERVICE_PORT: 8090
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: qb_db
-      DB_USER: qb_user
-      DB_PASSWORD: qb_password
-      DUCKDB_PATH: /data/forecasting.duckdb
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: qb_db
+      POSTGRES_USER: qb_user
+      POSTGRES_PASSWORD: qb_password
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8090/health" ]
       interval: 10s
@@ -157,9 +159,6 @@ services:
       context: ./forecasting-service
       dockerfile: Dockerfile
     container_name: forecasting-worker
-    volumes:
-      - duckdb-data:/data
-      - ./db:/app/db:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -167,16 +166,17 @@ services:
         condition: service_started
       aggregation-service:
         condition: service_healthy
+      zipkin:
+        condition: service_started
     environment:
       CONSUL_HOST: consul
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: qb_db
-      DB_USER: qb_user
-      DB_PASSWORD: qb_password
-      DUCKDB_PATH: /data/forecasting.duckdb
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: qb_db
+      POSTGRES_USER: qb_user
+      POSTGRES_PASSWORD: qb_password
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     command: python -m src.worker
 
 volumes:
   qb-postgres-data:
-  duckdb-data:

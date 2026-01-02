@@ -14,11 +14,23 @@ INGESTION_BASE_URL = os.getenv(
 ORDERS_ENDPOINT = f"{INGESTION_BASE_URL}/v1/orders"
 HEALTH_ENDPOINT = f"{INGESTION_BASE_URL}/actuator/health"
 
-# Merchant → Products mapping (matches seed data)
+# Merchant → Products mapping (matches seed data in db/02_seed.sql)
 MERCHANT_PRODUCTS = {
-    1: [101, 102, 103],
-    2: [104],
-    3: [105],
+    # Merchant 1: TechMart USA - 8 categories, 25 products
+    1: [
+        101, 102, 103, 104,  # Electronics
+        111, 112, 113,       # Books
+        121, 122, 123,       # Clothing
+        131, 132, 133,       # Home & Garden
+        141, 142, 143,       # Sports & Outdoors
+        151, 152, 153,       # Toys & Games
+        161, 162, 163,       # Health & Beauty
+        171, 172, 173,       # Automotive
+    ],
+    # Merchant 2: EuroStyle - 3 categories, 6 products
+    2: [201, 202, 211, 212, 221, 222],
+    # Merchant 3: BharatBazaar - 3 categories, 6 products
+    3: [301, 302, 311, 312, 321, 322],
 }
 
 

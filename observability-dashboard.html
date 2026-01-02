@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QB-Top-Sales Observability Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent-green: #22c55e;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-orange: #f97316;
+            --accent-pink: #ec4899;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .card-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .links {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .link {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border-radius: 10px;
+            text-decoration: none;
+            color: var(--text-primary);
+            transition: background 0.2s;
+        }
+
+        .link:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .link-label {
+            font-size: 0.9rem;
+        }
+
+        .link-url {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+
+        .link-arrow {
+            color: var(--text-secondary);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* Card color themes */
+        .card-health .card-icon {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+        }
+
+        .card-tracing .card-icon {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--accent-purple);
+        }
+
+        .card-metrics .card-icon {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--accent-blue);
+        }
+
+        .card-discovery .card-icon {
+            background: rgba(249, 115, 22, 0.2);
+            color: var(--accent-orange);
+        }
+
+        .card-api .card-icon {
+            background: rgba(236, 72, 153, 0.2);
+            color: var(--accent-pink);
+        }
+
+        .section-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .section-title:first-of-type {
+            margin-top: 0;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 3rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .refresh-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: white;
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.4);
+            transition: transform 0.2s;
+        }
+
+        .refresh-btn:hover {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>🔭 QB-Top-Sales Observability</h1>
+        <p>Monitor health, traces, metrics, and service discovery</p>
+    </div>
+
+    <div class="grid">
+        <!-- Health Endpoints -->
+        <div class="card card-health">
+            <div class="card-header">
+                <div class="card-icon">💓</div>
+                <h2 class="card-title">Health Endpoints</h2>
+            </div>
+            <div class="links">
+                <a href="http://localhost:8081/actuator/health" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Ingestion Service</div>
+                        <div class="link-url">:8081/actuator/health</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="http://localhost:8082/actuator/health" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Aggregation Service</div>
+                        <div class="link-url">:8082/actuator/health</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="http://localhost:8090/health" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Forecasting Service</div>
+                        <div class="link-url">:8090/health</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="http://localhost:8090/health/postgres" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Forecasting → Postgres</div>
+                        <div class="link-url">:8090/health/postgres</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Distributed Tracing -->
+        <div class="card card-tracing">
+            <div class="card-header">
+                <div class="card-icon">🕵️</div>
+                <h2 class="card-title">Distributed Tracing</h2>
+            </div>
+            <div class="links">
+                <a href="http://localhost:9411" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Zipkin UI</div>
+                        <div class="link-url">:9411</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="http://localhost:9411/zipkin/?lookback=15m&limit=10" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Recent Traces (15min)</div>
+                        <div class="link-url">:9411/zipkin/?lookback=15m</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Prometheus Metrics -->
+        <div class="card card-metrics">
+            <div class="card-header">
+                <div class="card-icon">📊</div>
+                <h2 class="card-title">Metrics (Prometheus)</h2>
+            </div>
+            <div class="section-title">Ingestion Service</div>
+            <div class="links">
+                <a href="http://localhost:8081/actuator/prometheus" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Prometheus Format</div>
+                        <div class="link-url">:8081/actuator/prometheus</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+            </div>
+            <div class="section-title">Aggregation Service</div>
+            <div class="links">
+                <a href="http://localhost:8082/actuator/prometheus" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Prometheus Format</div>
+                        <div class="link-url">:8082/actuator/prometheus</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+            </div>
+            <div class="section-title">Forecasting Service</div>
+            <div class="links">
+                <a href="http://localhost:8090/metrics" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Prometheus Format</div>
+                        <div class="link-url">:8090/metrics</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Service Discovery -->
+        <div class="card card-discovery">
+            <div class="card-header">
+                <div class="card-icon">🐳</div>
+                <h2 class="card-title">Service Discovery</h2>
+            </div>
+            <div class="links">
+                <a href="http://localhost:8500" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Consul UI</div>
+                        <div class="link-url">:8500</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="http://localhost:8500/ui/dc1/services" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Registered Services</div>
+                        <div class="link-url">:8500/ui/dc1/services</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- API Documentation -->
+        <div class="card card-api">
+            <div class="card-header">
+                <div class="card-icon">📖</div>
+                <h2 class="card-title">API Documentation</h2>
+            </div>
+            <div class="links">
+                <a href="http://localhost:8081/swagger-ui.html" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Ingestion API (Swagger)</div>
+                        <div class="link-url">:8081/swagger-ui.html</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="http://localhost:8082/swagger-ui.html" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Aggregation API (Swagger)</div>
+                        <div class="link-url">:8082/swagger-ui.html</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="http://localhost:8090/docs" target="_blank" class="link">
+                    <div>
+                        <div class="link-label">Forecasting API (FastAPI)</div>
+                        <div class="link-url">:8090/docs</div>
+                    </div>
+                    <span class="link-arrow">→</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card" style="border: 1px dashed rgba(255,255,255,0.2);">
+            <div class="card-header">
+                <div class="card-icon" style="background: rgba(255,255,255,0.1); color: var(--text-secondary);">⚡</div>
+                <h2 class="card-title">Quick Commands</h2>
+            </div>
+            <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8;">
+                <div><span style="color: var(--accent-green);">$</span> docker stats</div>
+                <div><span style="color: var(--accent-green);">$</span> docker-compose logs -f</div>
+                <div><span style="color: var(--accent-green);">$</span> docker ps --format "table
+                    {{.Names}}\t{{.Status}}"</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>QB-Top-Sales Observability Dashboard • Open links in new tabs</p>
+    </div>
+
+    <button class="refresh-btn" onclick="location.reload()" title="Refresh Page">
+        🔄
+    </button>
+</body>
+
+</html>

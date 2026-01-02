@@ -11,7 +11,7 @@ import javax.sql.DataSource;
 
 /**
  * Configuration for PostgreSQL (primary) DataSource.
- * This is marked as @Primary so Hibernate/JPA uses PostgreSQL, not DuckDB.
+ * This is marked as @Primary so Hibernate/JPA uses this DataSource.
  */
 @Configuration
 public class PostgresDataSourceConfig {

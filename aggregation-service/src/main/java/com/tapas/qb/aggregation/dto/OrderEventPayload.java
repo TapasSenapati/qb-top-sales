@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * Event payload consumed from order-events Kafka topic.
- * Uses orderId for idempotency (tracks processed orders in DuckDB).
+ * Uses orderId for idempotency (tracks processed orders in PostgreSQL).
  */
 public record OrderEventPayload(
                 Long orderId, // Used for idempotency

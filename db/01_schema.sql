@@ -1,6 +1,6 @@
--- PostgreSQL Schema for Ingestion (OLTP)
--- Analytics/forecasting data is stored in DuckDB (see db/03_duckdb_schema.sql)
--- but category_sales_agg is also in Postgres for JPA queries that join with ingestion tables
+-- PostgreSQL Schema for Ingestion (OLTP) and Forecasting (Analytics)
+-- All data is stored in PostgreSQL using two schemas: ingestion.* and forecasting.*
+-- Forecasting data (aggregates, processed events, forecasts) is in the forecasting schema
 CREATE SCHEMA IF NOT EXISTS ingestion;
 CREATE SCHEMA IF NOT EXISTS forecasting;
 
@@ -21,6 +21,25 @@ CREATE TABLE IF NOT EXISTS forecasting.category_sales_agg (
 
 CREATE INDEX IF NOT EXISTS idx_cat_sales_merchant_bucket
     ON forecasting.category_sales_agg (merchant_id, bucket_type, bucket_start);
+
+-- forecasting.processed_events (Idempotency for Aggregation)
+CREATE TABLE IF NOT EXISTS forecasting.processed_events (
+    order_id     BIGINT PRIMARY KEY,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- forecasting.category_sales_forecast (ML output)
+CREATE TABLE IF NOT EXISTS forecasting.category_sales_forecast (
+    id                BIGSERIAL PRIMARY KEY,
+    merchant_id       BIGINT   NOT NULL,
+    category_id       BIGINT   NOT NULL,
+    model_name        TEXT     NOT NULL,
+    generated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    forecast_horizon  INT      NOT NULL,
+    forecasted_values TEXT     NOT NULL, -- JSON or CSV string
+    mae               DOUBLE PRECISION
+);
+
 
 -- ingestion.merchants
 -- Each merchant operates in a single base currency (no multi-currency orders)
