@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Forecasting Service</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -42,6 +44,7 @@
                             <option value="wma">Weighted Moving Average</option>
                             <option value="ses">Exponential Smoothing</option>
                             <option value="snaive">Seasonal Naive</option>
+                            <option value="arima">ARIMA</option>
                         </select>
                         <p class="description">The algorithm used to generate the forecast.</p>
                     </div>
@@ -109,6 +112,10 @@
                                     <input type="checkbox" id="compare-snaive" name="models" value="snaive" checked>
                                     <label for="compare-snaive">Seasonal Naive</label>
                                 </div>
+                                <div>
+                                    <input type="checkbox" id="compare-arima" name="models" value="arima" checked>
+                                    <label for="compare-arima">ARIMA</label>
+                                </div>
                             </div>
                         </fieldset>
                     </div>
@@ -151,4 +158,5 @@
     </div>
     <script src="/static/script.js"></script>
 </body>
+
 </html>

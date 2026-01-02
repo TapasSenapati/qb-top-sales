@@ -175,7 +175,7 @@
 |-----------|------|-------------|
 | `merchant_id` | int | Merchant identifier (required) |
 | `bucket_type` | string | `DAY`, `WEEK`, or `MONTH` |
-| `model` | string | `rolling`, `wma`, `ses`, `snaive` (default: `rolling`) |
+| `model` | string | `rolling`, `wma`, `ses`, `snaive`, `arima` (default: `rolling`) |
 | `lookback` | int | Window size for rolling models (1-12) |
 | `limit` | int | Max categories to return (1-20) |
 

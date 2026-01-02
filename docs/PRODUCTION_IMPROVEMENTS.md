@@ -105,7 +105,7 @@ processedEventRepository.saveAll(processedEvents);  // Second
 
 | Component | Demo | Production |
 |-----------|------|------------|
-| **API ingestion** | Unlimited | Token bucket (e.g., 1000 req/min per merchant) |
+| **API ingestion** | Unlimited | Token bucket (e.g., 5K req/min per merchant) |
 | **Kafka producer** | No throttling | Backpressure via `linger.ms` + `batch.size` |
 | **Aggregation** | Batch of 100 | Configurable batch size + pause on backlog |
 
@@ -152,18 +152,21 @@ public void consume(String payload) { ... }
 
 ## 7. Observability
 
-### Current Implementation
-- Basic logging (`log.info`, `log.error`)
-- Health endpoints (`/actuator/health`, `/health/postgres`)
+### Current Implementation ✅
+- **Distributed Tracing**: Zipkin (Spring Boot + Python OpenTelemetry)
+- **Custom Spans**: Database operations in forecasting-service (`db.fetch_category_time_series`, etc.)
+- **Metrics**: Prometheus (Micrometer for Spring, prometheus-fastapi-instrumentator for Python)
+- **Health Endpoints**: `/actuator/health`, `/health`, `/health/postgres`
+- **Kafka Trace Propagation**: Enabled via `observation-enabled: true`
 
 ### Production Improvements
 
-| Aspect | Demo | Production |
-|--------|------|------------|
-| **Metrics** | None | Prometheus (consumer lag, latency histograms) |
-| **Tracing** | None | OpenTelemetry spans across services |
+| Aspect | Current (Demo) | Production |
+|--------|----------------|------------|
+| **Metrics** | Prometheus endpoints | Prometheus + Grafana dashboards |
+| **Tracing** | Zipkin (local) | Jaeger/Tempo + distributed backend |
 | **Alerting** | None | PagerDuty on lag > threshold, DLQ > 0 |
-| **Dashboards** | None | Grafana for real-time visibility |
+| **Centralized Logs** | Docker logs | ELK/Loki with structured JSON |
 
 #### Key Metrics to Add
 ```java

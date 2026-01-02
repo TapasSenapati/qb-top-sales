@@ -68,7 +68,7 @@ curl "http://localhost:8090/forecast/top-categories?merchant_id=1&bucket_type=DA
 # Compare models (pre-computed)
 curl "http://localhost:8090/forecast/compare-models?merchant_id=1"
 ```
-**Expected:** JSON with `forecasts` array containing 8 categories for Merchant 1.
+**Expected:** JSON with `forecasts` array containing forecasts from all 5 models for top categories.
 
 ### Swagger UI
 - Ingestion: http://localhost:8081/swagger-ui.html
@@ -97,9 +97,9 @@ docker exec qb-postgres psql -U qb_user -d qb_db -c \
 | Entity | Count |
 |--------|-------|
 | merchants | 3 |
-| categories | 14 |
-| products | 37 |
-| orders | 120 |
+| categories | 18 |
+| products | 54 |
+| orders | 180 |
 
 ### Aggregated Sales (by merchant)
 ```bash
@@ -111,9 +111,9 @@ docker exec qb-postgres psql -U qb_user -d qb_db -c \
 **Expected Results:**
 | merchant_id | categories | records |
 |-------------|------------|---------|
-| 1 | 8 | ~200 |
-| 2 | 3 | ~77 |
-| 3 | 3 | ~77 |
+| 1 | 8 | ~480 |
+| 2 | 5 | ~300 |
+| 3 | 5 | ~300 |
 
 ### Latest Forecasts
 ```sql

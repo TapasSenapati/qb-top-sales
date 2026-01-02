@@ -80,6 +80,7 @@ class ForecastingService:
             "wma": WeightedMovingAverageModel(),
             "ses": ExponentialSmoothingModel(),
             "snaive": SeasonalNaiveModel(),
+            "arima": ARIMAModel(),
         }
 
     def _fetch_series(self, merchant_id: int, bucket_type: str, limit_per_category: int = 20) -> Dict[int, List[TimeSeriesPoint]]:
@@ -308,3 +309,55 @@ class SeasonalNaiveModel:
             return None, f"Not enough data for Seasonal Naive (needs {period}, has {len(series)})"
 
         return series[-period].value, None
+
+
+class ARIMAModel:
+    """
+    ARIMA (AutoRegressive Integrated Moving Average) model.
+    Uses statsmodels ARIMA with order (1,1,1) as a robust default.
+    Good for trending data with some autocorrelation.
+    """
+    name = "arima"
+
+    def forecast(
+        self,
+        series: List[TimeSeriesPoint],
+        lookback: int,
+        bucket_type: str,
+        category_id: int,
+        category_name: str,
+    ) -> Tuple[Optional[float], Optional[str]]:
+        # ARIMA needs at least 10 observations for reasonable fitting
+        if len(series) < 10:
+            return None, f"Not enough data for ARIMA (needs 10+, has {len(series)})"
+        
+        try:
+            from statsmodels.tsa.arima.model import ARIMA
+            import warnings
+            
+            values = [p.value for p in series]
+            
+            # Suppress convergence warnings during fitting
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                
+                # ARIMA(1,1,1) is a robust default:
+                # - p=1: One autoregressive term
+                # - d=1: First differencing (handles trends)
+                # - q=1: One moving average term
+                model = ARIMA(values, order=(1, 1, 1))
+                fitted = model.fit()
+                
+                # Forecast one step ahead
+                forecast_value = fitted.forecast(steps=1)[0]
+                
+                # Ensure non-negative (sales can't be negative)
+                forecast_value = max(0, forecast_value)
+                
+                return round(forecast_value, 2), None
+                
+        except ImportError:
+            raise HTTPException(status_code=501, detail="Statsmodels not installed")
+        except Exception as e:
+            logger.warning(f"ARIMA failed for category {category_id}: {e}")
+            return None, f"ARIMA calculation failed: {str(e)}"

@@ -2,7 +2,7 @@
 
 This document outlines how to monitor the health, performance, and behavior of the **qb-top-sales** system.
 
-> **📊 Quick Access**: Open [observability-dashboard.html](./observability-dashboard.html) in your browser for a consolidated view of all observability links.
+> **📊 Quick Access**: Open [observability-dashboard.html](../ui/observability-dashboard.html) in your browser for a consolidated view of all observability links.
 
 ## 1. System Health 💓
 

@@ -93,6 +93,7 @@ class ForecastModelName(str, Enum):
     wma = "wma"
     ses = "ses"
     snaive = "snaive"
+    arima = "arima"
 
 
 forecasting_service = ForecastingService()
