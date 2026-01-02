@@ -16,7 +16,7 @@ HEALTH_ENDPOINT = f"{INGESTION_BASE_URL}/actuator/health"
 
 # Merchant → Products mapping (matches seed data in db/02_seed.sql)
 MERCHANT_PRODUCTS = {
-    # Merchant 1: TechMart USA - 8 categories, 25 products
+    # Merchant 1: TechMart USA - 8 categories, 24 products
     1: [
         101, 102, 103, 104,  # Electronics
         111, 112, 113,       # Books
@@ -27,11 +27,24 @@ MERCHANT_PRODUCTS = {
         161, 162, 163,       # Health & Beauty
         171, 172, 173,       # Automotive
     ],
-    # Merchant 2: EuroStyle - 3 categories, 6 products
-    2: [201, 202, 211, 212, 221, 222],
-    # Merchant 3: BharatBazaar - 3 categories, 6 products
-    3: [301, 302, 311, 312, 321, 322],
+    # Merchant 2: EuroStyle - 5 categories, 15 products (luxury European)
+    2: [
+        201, 202, 203,       # Fashion
+        211, 212, 213,       # Accessories
+        221, 222, 223,       # Footwear
+        231, 232, 233,       # Jewelry
+        241, 242, 243,       # Watches
+    ],
+    # Merchant 3: BharatBazaar - 5 categories, 15 products (Indian marketplace)
+    3: [
+        301, 302, 303,       # Kitchen Appliances
+        311, 312, 313,       # Home Decor
+        321, 322, 323,       # Traditional Wear
+        331, 332, 333,       # Ayurveda & Wellness
+        341, 342, 343,       # Handicrafts
+    ],
 }
+
 
 
 def random_order(order_date=None):

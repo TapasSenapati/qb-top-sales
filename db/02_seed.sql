@@ -32,14 +32,18 @@ VALUES
     (6, 1, 'Toys & Games'),
     (7, 1, 'Health & Beauty'),
     (8, 1, 'Automotive'),
-    -- Merchant 2 (EuroStyle) - 3 categories
+    -- Merchant 2 (EuroStyle) - 5 categories (luxury European fashion)
     (9, 2, 'Fashion'),
     (10, 2, 'Accessories'),
     (11, 2, 'Footwear'),
-    -- Merchant 3 (BharatBazaar) - 3 categories
+    (15, 2, 'Jewelry'),
+    (16, 2, 'Watches'),
+    -- Merchant 3 (BharatBazaar) - 5 categories (Indian marketplace)
     (12, 3, 'Kitchen Appliances'),
     (13, 3, 'Home Decor'),
-    (14, 3, 'Traditional Wear')
+    (14, 3, 'Traditional Wear'),
+    (17, 3, 'Ayurveda & Wellness'),
+    (18, 3, 'Handicrafts')
 ON CONFLICT (id) DO NOTHING;
 
 -- ===================
@@ -83,21 +87,43 @@ VALUES
     -- Merchant 2: Fashion (cat 9)
     (201, 2, 9, 'Designer Dress'),
     (202, 2, 9, 'Silk Blouse'),
+    (203, 2, 9, 'Cashmere Coat'),
     -- Merchant 2: Accessories (cat 10)
     (211, 2, 10, 'Leather Handbag'),
     (212, 2, 10, 'Sunglasses Premium'),
+    (213, 2, 10, 'Belt Collection'),
     -- Merchant 2: Footwear (cat 11)
     (221, 2, 11, 'Stiletto Heels'),
     (222, 2, 11, 'Sneakers Limited'),
+    (223, 2, 11, 'Oxford Shoes'),
+    -- Merchant 2: Jewelry (cat 15)
+    (231, 2, 15, 'Gold Necklace'),
+    (232, 2, 15, 'Diamond Ring'),
+    (233, 2, 15, 'Pearl Earrings'),
+    -- Merchant 2: Watches (cat 16)
+    (241, 2, 16, 'Chronograph Swiss'),
+    (242, 2, 16, 'Smart Luxury Watch'),
+    (243, 2, 16, 'Vintage Collection'),
     -- Merchant 3: Kitchen Appliances (cat 12)
     (301, 3, 12, 'Mixer Grinder'),
     (302, 3, 12, 'Induction Cooktop'),
+    (303, 3, 12, 'Pressure Cooker'),
     -- Merchant 3: Home Decor (cat 13)
     (311, 3, 13, 'Brass Lamp'),
     (312, 3, 13, 'Wall Hanging'),
+    (313, 3, 13, 'Tanjore Painting'),
     -- Merchant 3: Traditional Wear (cat 14)
     (321, 3, 14, 'Silk Saree'),
-    (322, 3, 14, 'Kurta Set')
+    (322, 3, 14, 'Kurta Set'),
+    (323, 3, 14, 'Lehenga Choli'),
+    -- Merchant 3: Ayurveda & Wellness (cat 17)
+    (331, 3, 17, 'Ashwagandha Pack'),
+    (332, 3, 17, 'Chyawanprash'),
+    (333, 3, 17, 'Herbal Oil Set'),
+    -- Merchant 3: Handicrafts (cat 18)
+    (341, 3, 18, 'Marble Sculpture'),
+    (342, 3, 18, 'Pashmina Shawl'),
+    (343, 3, 18, 'Wooden Chess Set')
 ON CONFLICT (id) DO NOTHING;
 
 -- ===================
@@ -251,49 +277,95 @@ SET total_amount = (
 WHERE o.merchant_id = 1 AND o.id >= 10000;
 
 -- ===================
--- ORDERS & ORDER ITEMS - MERCHANT 2 (30 days)
+-- ORDERS & ORDER ITEMS - MERCHANT 2 (60 days, European luxury patterns)
 -- ===================
+-- Pattern Strategy:
+--   Fashion (cat 9): Trendy with seasonal bursts
+--   Accessories (cat 10): Stable premium
+--   Footwear (cat 11): Weekend spikes
+--   Jewelry (cat 15): Strong growth (luxury market)
+--   Watches (cat 16): High-value, low-frequency
+
 DO $$
 DECLARE
     day_offset INTEGER;
+    order_date DATE;
+    is_weekend BOOLEAN;
+    day_of_week INTEGER;
+    item_id_base INTEGER := 60000;
+    
+    -- Base values (EUR)
+    fashion_base DECIMAL := 350;
+    accessories_base DECIMAL := 180;
+    footwear_base DECIMAL := 250;
+    jewelry_base DECIMAL := 500;
+    watches_base DECIMAL := 800;
+    
 BEGIN
-    FOR day_offset IN 1..30 LOOP
+    FOR day_offset IN 1..60 LOOP
+        order_date := CURRENT_DATE - (day_offset || ' days')::INTERVAL;
+        day_of_week := EXTRACT(DOW FROM order_date);
+        is_weekend := day_of_week IN (0, 6);
+        
         INSERT INTO ingestion.orders (id, merchant_id, order_date, currency, total_amount)
-        VALUES (20000 + day_offset, 2, CURRENT_DATE - (day_offset || ' days')::INTERVAL, 'EUR', 0)
+        VALUES (20000 + day_offset, 2, order_date, 'EUR', 0)
         ON CONFLICT (id) DO NOTHING;
         
-        -- Fashion
+        -- Fashion: Trendy bursts (higher on Fridays/Saturdays)
         INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
         VALUES (
-            60000 + (day_offset * 3) + 1,
+            item_id_base + (day_offset * 5) + 1,
             20000 + day_offset,
-            201,
+            201 + FLOOR(RANDOM() * 3),
             1 + FLOOR(RANDOM() * 2),
             149.99,
-            ROUND((200 + RANDOM() * 100)::NUMERIC, 2)
+            ROUND((fashion_base * (CASE WHEN day_of_week IN (5, 6) THEN 1.5 ELSE 1.0 END) * (0.85 + RANDOM() * 0.3))::NUMERIC, 2)
         ) ON CONFLICT (id) DO NOTHING;
         
-        -- Accessories
+        -- Accessories: Stable premium
         INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
         VALUES (
-            60000 + (day_offset * 3) + 2,
+            item_id_base + (day_offset * 5) + 2,
             20000 + day_offset,
-            211,
+            211 + FLOOR(RANDOM() * 3),
             1 + FLOOR(RANDOM() * 2),
             89.99,
-            ROUND((100 + RANDOM() * 80)::NUMERIC, 2)
+            ROUND((accessories_base * (0.9 + RANDOM() * 0.2))::NUMERIC, 2)
         ) ON CONFLICT (id) DO NOTHING;
         
-        -- Footwear
+        -- Footwear: Weekend spikes
         INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
         VALUES (
-            60000 + (day_offset * 3) + 3,
+            item_id_base + (day_offset * 5) + 3,
             20000 + day_offset,
-            221,
+            221 + FLOOR(RANDOM() * 3),
             1,
             199.99,
-            ROUND((150 + RANDOM() * 100)::NUMERIC, 2)
+            ROUND((footwear_base * (CASE WHEN is_weekend THEN 1.8 ELSE 1.0 END) * (0.8 + RANDOM() * 0.4))::NUMERIC, 2)
         ) ON CONFLICT (id) DO NOTHING;
+        
+        -- Jewelry: Strong growth (1.2% daily)
+        INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
+        VALUES (
+            item_id_base + (day_offset * 5) + 4,
+            20000 + day_offset,
+            231 + FLOOR(RANDOM() * 3),
+            1,
+            599.99,
+            ROUND((jewelry_base * POWER(1.012, 60 - day_offset) * (0.85 + RANDOM() * 0.3))::NUMERIC, 2)
+        ) ON CONFLICT (id) DO NOTHING;
+        
+        -- Watches: High-value, slight growth
+        INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
+        VALUES (
+            item_id_base + (day_offset * 5) + 5,
+            20000 + day_offset,
+            241 + FLOOR(RANDOM() * 3),
+            1,
+            1299.99,
+            ROUND((watches_base * POWER(1.005, 60 - day_offset) * (0.75 + RANDOM() * 0.5))::NUMERIC, 2)
+        ) ON CONFLICT (id) DO NOTHING;
+        
     END LOOP;
 END $$;
 
@@ -306,49 +378,98 @@ SET total_amount = (
 WHERE o.merchant_id = 2 AND o.id >= 20000;
 
 -- ===================
--- ORDERS & ORDER ITEMS - MERCHANT 3 (30 days)
+-- ORDERS & ORDER ITEMS - MERCHANT 3 (60 days, Indian marketplace patterns)
 -- ===================
+-- Pattern Strategy:
+--   Kitchen Appliances (cat 12): Stable with slight growth
+--   Home Decor (cat 13): Festival spikes (simulate Diwali effect mid-period)
+--   Traditional Wear (cat 14): Strong weekend + festival patterns
+--   Ayurveda & Wellness (cat 17): Steady growth (health trend)
+--   Handicrafts (cat 18): Seasonal, gift-driven
+
 DO $$
 DECLARE
     day_offset INTEGER;
+    order_date DATE;
+    is_weekend BOOLEAN;
+    day_of_week INTEGER;
+    is_festival_period BOOLEAN;
+    item_id_base INTEGER := 70000;
+    
+    -- Base values (INR)
+    kitchen_base DECIMAL := 5000;
+    decor_base DECIMAL := 2500;
+    wear_base DECIMAL := 8000;
+    ayurveda_base DECIMAL := 1500;
+    handicraft_base DECIMAL := 3000;
+    
 BEGIN
-    FOR day_offset IN 1..30 LOOP
+    FOR day_offset IN 1..60 LOOP
+        order_date := CURRENT_DATE - (day_offset || ' days')::INTERVAL;
+        day_of_week := EXTRACT(DOW FROM order_date);
+        is_weekend := day_of_week IN (0, 6);
+        -- Simulate festival period (days 25-35 from today = ~1 month ago)
+        is_festival_period := day_offset BETWEEN 25 AND 35;
+        
         INSERT INTO ingestion.orders (id, merchant_id, order_date, currency, total_amount)
-        VALUES (30000 + day_offset, 3, CURRENT_DATE - (day_offset || ' days')::INTERVAL, 'INR', 0)
+        VALUES (30000 + day_offset, 3, order_date, 'INR', 0)
         ON CONFLICT (id) DO NOTHING;
         
-        -- Kitchen Appliances
+        -- Kitchen Appliances: Stable with slight growth
         INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
         VALUES (
-            70000 + (day_offset * 3) + 1,
+            item_id_base + (day_offset * 5) + 1,
             30000 + day_offset,
-            301,
+            301 + FLOOR(RANDOM() * 3),
             1 + FLOOR(RANDOM() * 2),
             4999.00,
-            ROUND((4000 + RANDOM() * 2000)::NUMERIC, 2)
+            ROUND((kitchen_base * POWER(1.003, 60 - day_offset) * (0.85 + RANDOM() * 0.3))::NUMERIC, 2)
         ) ON CONFLICT (id) DO NOTHING;
         
-        -- Home Decor
+        -- Home Decor: Festival spikes
         INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
         VALUES (
-            70000 + (day_offset * 3) + 2,
+            item_id_base + (day_offset * 5) + 2,
             30000 + day_offset,
-            311,
+            311 + FLOOR(RANDOM() * 3),
             1 + FLOOR(RANDOM() * 3),
             1999.00,
-            ROUND((2000 + RANDOM() * 1500)::NUMERIC, 2)
+            ROUND((decor_base * (CASE WHEN is_festival_period THEN 2.5 ELSE 1.0 END) * (0.8 + RANDOM() * 0.4))::NUMERIC, 2)
         ) ON CONFLICT (id) DO NOTHING;
         
-        -- Traditional Wear
+        -- Traditional Wear: Weekend + festival pattern
         INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
         VALUES (
-            70000 + (day_offset * 3) + 3,
+            item_id_base + (day_offset * 5) + 3,
             30000 + day_offset,
-            321,
+            321 + FLOOR(RANDOM() * 3),
             1,
             7999.00,
-            ROUND((6000 + RANDOM() * 4000)::NUMERIC, 2)
+            ROUND((wear_base * (CASE WHEN is_weekend THEN 1.5 ELSE 1.0 END) * (CASE WHEN is_festival_period THEN 2.0 ELSE 1.0 END) * (0.75 + RANDOM() * 0.5))::NUMERIC, 2)
         ) ON CONFLICT (id) DO NOTHING;
+        
+        -- Ayurveda & Wellness: Steady growth (1% daily)
+        INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
+        VALUES (
+            item_id_base + (day_offset * 5) + 4,
+            30000 + day_offset,
+            331 + FLOOR(RANDOM() * 3),
+            2 + FLOOR(RANDOM() * 3),
+            499.00,
+            ROUND((ayurveda_base * POWER(1.01, 60 - day_offset) * (0.85 + RANDOM() * 0.3))::NUMERIC, 2)
+        ) ON CONFLICT (id) DO NOTHING;
+        
+        -- Handicrafts: Gift-driven, weekend + festival boost
+        INSERT INTO ingestion.order_items (id, order_id, product_id, quantity, unit_price, line_amount)
+        VALUES (
+            item_id_base + (day_offset * 5) + 5,
+            30000 + day_offset,
+            341 + FLOOR(RANDOM() * 3),
+            1,
+            2999.00,
+            ROUND((handicraft_base * (CASE WHEN is_weekend THEN 1.3 ELSE 1.0 END) * (CASE WHEN is_festival_period THEN 1.8 ELSE 1.0 END) * (0.8 + RANDOM() * 0.4))::NUMERIC, 2)
+        ) ON CONFLICT (id) DO NOTHING;
+        
     END LOOP;
 END $$;
 
@@ -363,13 +484,15 @@ WHERE o.merchant_id = 3 AND o.id >= 30000;
 -- ===================
 -- Summary of seeded data
 -- ===================
--- Merchants: 3
--- Categories: 14 (8 for Merchant 1, 3 each for Merchants 2 & 3)
--- Products: 26
--- Orders: 120 (60 for M1, 30 for M2, 30 for M3)
--- Order Items: 840+ (8 per M1 order, 3 per M2/M3 order)
+-- Merchants: 3 (TechMart USA, EuroStyle, BharatBazaar)
+-- Categories: 18 (8 for Merchant 1, 5 each for Merchants 2 & 3)
+-- Products: 54 (24 for M1, 15 each for M2 & M3)
+-- Orders: 180 (60 per merchant)
+-- Order Items: 1080 (8 per M1 order, 5 per M2/M3 order)
 -- 
--- Sales Patterns (for Prophet/ARIMA):
+-- Sales Patterns by Merchant:
+-- 
+-- Merchant 1 (TechMart USA - USD):
 --   Electronics: Strong upward trend (~1.5%/day)
 --   Books: Stable with slight growth
 --   Clothing: Weekend seasonal spikes
@@ -378,3 +501,17 @@ WHERE o.merchant_id = 3 AND o.id >= 30000;
 --   Toys: Stable/flat
 --   Health: Steady growth
 --   Automotive: Low, consistent
+-- 
+-- Merchant 2 (EuroStyle - EUR):
+--   Fashion: Trendy with Friday/Saturday bursts
+--   Accessories: Stable premium
+--   Footwear: Weekend spikes
+--   Jewelry: Strong growth (luxury market, ~1.2%/day)
+--   Watches: High-value, slight growth
+-- 
+-- Merchant 3 (BharatBazaar - INR):
+--   Kitchen Appliances: Stable with slight growth
+--   Home Decor: Festival spikes (mid-period Diwali effect)
+--   Traditional Wear: Weekend + festival pattern
+--   Ayurveda & Wellness: Steady growth (~1%/day)
+--   Handicrafts: Gift-driven, weekend + festival boost
