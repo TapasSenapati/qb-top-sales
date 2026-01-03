@@ -49,3 +49,9 @@ management:
   endpoint:
     health:
       show-details: always
+
+# ClickHouse configuration for analytics
+clickhouse:
+  host: ${CLICKHOUSE_HOST:localhost}
+  port: ${CLICKHOUSE_PORT:8123}
+  database: default

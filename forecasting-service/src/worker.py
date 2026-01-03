@@ -11,7 +11,8 @@ from opentelemetry.exporter.zipkin.json import ZipkinExporter
 from opentelemetry.sdk.resources import Resource
 
 from src.service import ForecastingService
-from src.postgres_client import get_postgres_client
+from src.clickhouse_client import get_clickhouse_client
+from src.db import get_distinct_merchants
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +28,7 @@ tracer = trace.get_tracer(__name__)
 
 # Initialize Service & DB
 service = ForecastingService()
-pg_client = get_postgres_client()
+ch_client = get_clickhouse_client()
 
 def run_forecast_job():
     """
@@ -37,8 +38,7 @@ def run_forecast_job():
         logger.info("Starting scheduled forecast generation job...")
         
         try:
-            # 1. Get all merchants that have aggregated sales data
-            from src.db import get_distinct_merchants
+            # 1. Get all merchants that have aggregated sales data (from ClickHouse)
             merchant_ids = get_distinct_merchants()
             
             if not merchant_ids:
@@ -48,48 +48,48 @@ def run_forecast_job():
             logger.info(f"Generating forecasts for {len(merchant_ids)} merchants: {merchant_ids}")
             
             # Use a single batch timestamp for all forecasts in this run
-            # This ensures compare-models can retrieve all forecasts from the same batch
             batch_timestamp = datetime.now()
             
             total_count = 0
             for merchant_id in merchant_ids:
                 # 2. Run models for this merchant
-                # We look back 28 days (4 weeks) to get a good trend
                 results = service.run_all_models(merchant_id=merchant_id, category_series=None, lookback=28, limit=100)
                 
-                # 3. Store results in Postgres
-                with pg_client.cursor(commit=True) as cur:
-                    count = 0
-                    for category_id, category_data in results.items():
-                        models = category_data["models"]
-                        
-                        for model_name, forecast_data in models.items():
-                            if forecast_data.forecast:
-                                # We only store the first point for now (1-day forecast)
-                                next_point = forecast_data.forecast[0]
-                                value = next_point.value
-                                horizon = 1
-                                
-                                # Simple serialization of the value
-                                forecast_json = json.dumps([{"date": str(next_point.bucket_start), "value": value}])
-                                
-                                cur.execute("""
-                                    INSERT INTO forecasting.category_sales_forecast 
-                                    (merchant_id, category_id, model_name, generated_at, forecast_horizon, forecasted_values, mae)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                                """, (
-                                    merchant_id,
-                                    category_id,
-                                    model_name,
-                                    batch_timestamp,  # Use consistent batch timestamp
-                                    horizon,
-                                    forecast_json,
-                                    forecast_data.mae
-                                ))
-                                count += 1
+                # 3. Store results in ClickHouse
+                data = []
+                columns = ['id', 'merchant_id', 'category_id', 'model_name', 
+                           'generated_at', 'forecast_horizon', 'forecasted_values', 'mae']
+                
+                row_id = int(datetime.now().timestamp() * 1000000)
+                
+                for category_id, category_data in results.items():
+                    models = category_data["models"]
                     
-                    total_count += count
-                    logger.info(f"Generated {count} forecasts for merchant {merchant_id}")
+                    for model_name, forecast_data in models.items():
+                        if forecast_data.forecast:
+                            next_point = forecast_data.forecast[0]
+                            value = next_point.value
+                            horizon = 1
+                            
+                            forecast_json = json.dumps([{"date": str(next_point.bucket_start), "value": value}])
+                            
+                            data.append([
+                                row_id,
+                                merchant_id,
+                                category_id,
+                                model_name,
+                                batch_timestamp,
+                                horizon,
+                                forecast_json,
+                                forecast_data.mae
+                            ])
+                            row_id += 1
+                
+                if data:
+                    ch_client.insert('category_sales_forecast', data, columns)
+                
+                total_count += len(data)
+                logger.info(f"Generated {len(data)} forecasts for merchant {merchant_id}")
             
             logger.info(f"Forecast job completed. Generated {total_count} total forecast records.")
 
@@ -98,20 +98,19 @@ def run_forecast_job():
             # Span will automatically record exception
 
 if __name__ == "__main__":
-    # Wait for DB to be ready (reduced from 10s since depends_on waits for healthy)
+    # Wait for DB to be ready
     time.sleep(5) 
     
     scheduler = BlockingScheduler()
     
     # Run immediately on startup, then every 60 seconds
-    # The next_run_time=datetime.now() ensures immediate first execution
     scheduler.add_job(
         run_forecast_job, 
         'interval', 
         seconds=60,
-        next_run_time=datetime.now(),  # Run immediately!
-        misfire_grace_time=30,  # Allow job to run up to 30s late
-        coalesce=True  # If multiple runs were missed, only run once
+        next_run_time=datetime.now(),
+        misfire_grace_time=30,
+        coalesce=True
     )
     
     logger.info("Forecasting Worker started. Running immediately, then every 60 seconds.")

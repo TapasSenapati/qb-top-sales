@@ -9,7 +9,7 @@ This service implements **5 forecasting models** with a **Strategy Pattern** arc
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │  Time Series    │────▶│  Model Registry  │────▶│  Forecast       │
-│  Data (Postgres)│     │  (5 strategies)  │     │  Results + MAE  │
+│  Data(ClickHouse│     │  (5 strategies)  │     │  Results + MAE  │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
 ```
 

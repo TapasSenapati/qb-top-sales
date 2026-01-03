@@ -69,18 +69,21 @@ event.setProcessed(true);  // Mark after ack
 
 ### Current Issues
 
-#### PostgreSQL Concurrency
+#### ClickHouse + PostgreSQL Concurrency
 ```java
-// PostgreSQL handles concurrent writes with proper transaction isolation
-// Both services write to same PostgreSQL database:
-aggregation-service -> PostgreSQL forecasting schema
-forecasting-worker  -> PostgreSQL forecasting schema  // Transactions prevent contention
+// Current architecture uses OLTP/OLAP separation:
+aggregation-service -> ClickHouse (analytics writes)
+                    -> PostgreSQL (backward compat writes)
+forecasting-worker  -> ClickHouse (forecast storage)
+// ClickHouse uses ReplacingMergeTree for eventual deduplication
+// PostgreSQL handles idempotency tracking for Kafka consumer
 ```
 
 #### Production Enhancements
-- Use connection pooling (HikariCP) for efficient connection management
-- Consider read replicas for heavy read workloads
-- Implement row-level locking for critical updates
+- ClickHouse: Use `FINAL` modifier for reads to get merged view
+- ClickHouse: Consider cluster mode for horizontal scaling
+- PostgreSQL: Use connection pooling (HikariCP) for efficient connection management
+- PostgreSQL: Consider read replicas for heavy read workloads
 
 #### Aggregation Order Bug
 ```java

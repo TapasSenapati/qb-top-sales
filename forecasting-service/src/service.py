@@ -5,6 +5,7 @@ from fastapi import HTTPException
 import pandas as pd
 import logging
 from .postgres_client import get_postgres_client
+from .clickhouse_client import get_clickhouse_client
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -79,12 +80,13 @@ MODEL_DATA_REQUIREMENTS = {
 class ForecastingService:
     """
     Stateless forecasting service.
-    - Uses pre-aggregated time series from Postgres
+    - Uses pre-aggregated time series from ClickHouse
     - Strategy-based model selection
     """
     def __init__(self, default_lookback: int = 4):
         self.default_lookback = default_lookback
-        self.pg_client = get_postgres_client()
+        self.ch_client = get_clickhouse_client()
+        self.pg_client = get_postgres_client()  # For category names only
         # Registry of forecasting models
         self._models: Dict[str, ForecastModel] = {
             "rolling": RollingAverageModel(),
@@ -199,35 +201,33 @@ class ForecastingService:
 
     def _fetch_series(self, merchant_id: int, bucket_type: str, limit_per_category: int = 20) -> Dict[int, List[TimeSeriesPoint]]:
         """
-        Fetches time-series data from Postgres (forecasting.category_sales_agg).
+        Fetches time-series data from ClickHouse (category_sales_agg).
         Filters by merchant_id to only return categories belonging to that merchant.
         """
         query = """
             SELECT merchant_id, category_id, bucket_start, total_sales_amount
-            FROM forecasting.category_sales_agg
-            WHERE merchant_id = %s AND bucket_type = %s
+            FROM category_sales_agg FINAL
+            WHERE merchant_id = %(merchant_id)s AND bucket_type = %(bucket_type)s
             ORDER BY category_id, bucket_start ASC
         """
         
         category_series: Dict[int, List[TimeSeriesPoint]] = {}
         
         try:
-            with self.pg_client.cursor() as cur:
-                cur.execute(query, (merchant_id, bucket_type))
-                rows = cur.fetchall()
-                
-                for row in rows:
-                    cat_id = row['category_id']
-                    point = TimeSeriesPoint(
-                        bucket_start=row['bucket_start'],
-                        value=float(row['total_sales_amount'])
-                    )
-                    if cat_id not in category_series:
-                        category_series[cat_id] = []
-                    category_series[cat_id].append(point)
+            rows = self.ch_client.query(query, {"merchant_id": merchant_id, "bucket_type": bucket_type})
+            
+            for row in rows:
+                cat_id = row['category_id']
+                point = TimeSeriesPoint(
+                    bucket_start=row['bucket_start'],
+                    value=float(row['total_sales_amount'])
+                )
+                if cat_id not in category_series:
+                    category_series[cat_id] = []
+                category_series[cat_id].append(point)
                     
         except Exception as e:
-            logger.error(f"Failed to fetch series from Postgres: {e}")
+            logger.error(f"Failed to fetch series from ClickHouse: {e}")
             raise
             
         return category_series

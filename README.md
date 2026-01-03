@@ -76,7 +76,8 @@ The system uses two complementary data sources to populate sales data:
 | **Categories** | 18 categories with distinct sales patterns |
 | **Products** | 54 products across all categories |
 | **Orders** | 120 days of historical orders (360 total) |
-| **Aggregations** | Pre-computed DAY/WEEK/MONTH buckets in `forecasting.category_sales_agg` |
+
+| **Aggregations** | Pre-computed DAY/WEEK/MONTH buckets in ClickHouse `category_sales_agg` |
 
 **Sales patterns included**:
 - Trending categories (Electronics with 1.5% daily growth)
@@ -84,7 +85,7 @@ The system uses two complementary data sources to populate sales data:
 - Stable categories (Toys with consistent sales)
 - Festival effects (Traditional Wear with Diwali spike)
 
-**Note**: Seed data bypasses Kafka and directly populates both the orders table AND the aggregation table, so forecasting works immediately.
+**Note**: Seed data bypasses Kafka and directly populates the PostgreSQL OLTP tables. ClickHouse fills up via real-time ingestion or backfill.
 
 ---
 
@@ -103,10 +104,10 @@ The system uses two complementary data sources to populate sales data:
 **How it works**:
 1. Posts orders to the ingestion-service API
 2. Orders flow through Kafka to the aggregation-service
-3. Aggregation-service updates `forecasting.category_sales_agg`
-4. Forecasting models use the updated aggregations
+3. Aggregation-service updates ClickHouse `category_sales_agg`
+4. Forecasting models use the updated aggregations from ClickHouse
 
 **When to use each**:
-- **Seed data**: For demos, testing forecasting models, immediate data availability
-- **Order simulator**: For testing real-time data flow, Kafka integration, live aggregation
+- **Seed data**: For demos (PostgreSQL OLTP data only)
+- **Order simulator**: For testing real-time data flow, Kafka integration, live aggregation (populates ClickHouse)
 

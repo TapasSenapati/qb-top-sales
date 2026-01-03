@@ -23,9 +23,9 @@ import java.util.Map;
  * Aggregates order events into time-bucketed sales summaries (DAY, WEEK,
  * MONTH).
  * 
- * SINGLE-WRITE ARCHITECTURE:
- * - PostgreSQL: All data written to forecasting schema for both real-time
- * API queries and forecasting-worker batch processing
+ * DUAL-WRITE ARCHITECTURE:
+ * - ClickHouse: Analytics engine for fast aggregation queries (OLAP)
+ * - PostgreSQL: Backward compatibility during migration (OLTP)
  * 
  * CURRENCY: Single currency per merchant is enforced at schema level
  * (ingestion.merchants.currency). Amounts are summed directly without
@@ -36,12 +36,12 @@ public class CategorySalesAggregator {
         private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(CategorySalesAggregator.class);
 
         private final ProcessedEventRepository processedEventRepo;
-        private final CategorySalesAggRepository postgresRepo;
+        private final CategorySalesAggRepository salesRepo;
 
         public CategorySalesAggregator(ProcessedEventRepository processedEventRepo,
-                        CategorySalesAggRepository postgresRepo) {
+                        CategorySalesAggRepository salesRepo) {
                 this.processedEventRepo = processedEventRepo;
-                this.postgresRepo = postgresRepo;
+                this.salesRepo = salesRepo;
         }
 
         @Transactional
@@ -52,6 +52,10 @@ public class CategorySalesAggregator {
                                 .toList();
 
                 // Check idempotency against Postgres (forecasting.processed_events)
+                // Note: We still keep processed_events in Postgres for reliable exactly-once
+                // (or at-least-once)
+                // semantic via transaction manager, as ClickHouse is eventually
+                // consistent/async.
                 var existingEvents = processedEventRepo.findAllById(orderIds);
                 var existingOrderIds = existingEvents.stream()
                                 .map(ProcessedEvent::getOrderId)
@@ -98,63 +102,30 @@ public class CategorySalesAggregator {
                 var weekData = toUpsertData(weekAggregates, 7, ChronoUnit.DAYS);
                 var monthData = toUpsertData(monthAggregates, 1, ChronoUnit.MONTHS);
 
-                // === SINGLE-WRITE: Write ONLY to Postgres ===
+                // === Write to ClickHouse via custom repository ===
 
-                logger.info("Writing aggregates to Postgres: {} day, {} week, {} month records",
+                logger.info("Writing aggregates: {} day, {} week, {} month records",
                                 dayAggregates.size(), weekAggregates.size(), monthAggregates.size());
 
                 // CRITICAL: Write aggregates FIRST, then mark as processed
-                // This prevents undercount if crash occurs between the two operations
-                // (at-least-once delivery: if we crash after aggregates but before marking
-                // processed,
-                // the events will be reprocessed, but idempotent upserts will handle it
-                // correctly)
-                writeToPostgres(dayData, weekData, monthData);
+                // at-least-once delivery
+                writeAggregates(dayData, "DAY");
+                writeAggregates(weekData, "WEEK");
+                writeAggregates(monthData, "MONTH");
 
                 // Only mark as processed AFTER aggregates are successfully written
                 processedEventRepo.saveAll(processedEvents);
         }
 
         /**
-         * Write aggregates to Postgres for real-time API queries.
+         * Write aggregates to ClickHouse via the custom repository.
          */
-        private void writeToPostgres(List<UpsertData> dayData,
-                        List<UpsertData> weekData,
-                        List<UpsertData> monthData) {
+        private void writeAggregates(List<UpsertData> data, String bucketType) {
                 try {
-                        for (UpsertData data : dayData) {
-                                postgresRepo.upsertDayAggregate(
-                                                data.merchantId(),
-                                                data.categoryId(),
-                                                data.bucketStart(),
-                                                data.bucketEnd(),
-                                                data.totalSalesAmount(),
-                                                data.totalUnitsSold());
-                        }
-
-                        for (UpsertData data : weekData) {
-                                postgresRepo.upsertWeekAggregate(
-                                                data.merchantId(),
-                                                data.categoryId(),
-                                                data.bucketStart(),
-                                                data.bucketEnd(),
-                                                data.totalSalesAmount(),
-                                                data.totalUnitsSold());
-                        }
-
-                        for (UpsertData data : monthData) {
-                                postgresRepo.upsertMonthAggregate(
-                                                data.merchantId(),
-                                                data.categoryId(),
-                                                data.bucketStart(),
-                                                data.bucketEnd(),
-                                                data.totalSalesAmount(),
-                                                data.totalUnitsSold());
-                        }
-
-                        logger.debug("Successfully wrote aggregates to Postgres");
+                        salesRepo.bulkUpsert(bucketType, data);
+                        logger.debug("Successfully wrote {} {} aggregates", data.size(), bucketType);
                 } catch (Exception e) {
-                        logger.error("Failed to write aggregates to Postgres", e);
+                        logger.error("Failed to write {} aggregates", bucketType, e);
                         // Re-throw to ensure transaction rollback
                         throw e;
                 }

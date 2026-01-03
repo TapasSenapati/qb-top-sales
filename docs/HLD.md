@@ -44,88 +44,141 @@
     
 - **Outbox Relay (in ingestion service)**: scheduled publisher reads `ingestion.order_events` and publishes to Kafka topic `order-events`.
     
-- **Aggregation Service**: consumes `order-events`, dedupes using `forecasting.processed_events` (Postgres), and upserts bucketed totals into Postgres `forecasting.category_sales_agg` (Single Source of Truth).
+- **Aggregation Service**: consumes `order-events`, dedupes using `forecasting.processed_events` (Postgres for exactly-once), and upserts bucketed totals into **ClickHouse** `category_sales_agg` (Single Source of Truth for Analytics).
   
-- **Forecasting Service (FastAPI)**: serves UI + endpoints like `/forecast/top-categories`. Reads from Postgres for analytics and category names.
+- **Forecasting Service (FastAPI)**: serves UI + endpoints like `/forecast/top-categories`. Reads from **ClickHouse** for analytics and joins with Postgres for category names.
     
-- **Forecasting Worker**: periodic scheduler to precompute forecasts for merchants and store them in Postgres `forecasting.category_sales_forecast`.
+- **Forecasting Worker**: periodic scheduler to precompute forecasts for merchants and store them in **ClickHouse** `category_sales_forecast`.
     
 - Compose wiring shows ingestion (8081), aggregation (8082), forecasting (8090), plus Kafka/Postgres/Consul.
     
 
-## ASCII HLD diagram 
-```
-                              +---------------------------+
-                              |         End User          |
-                              |  Top sales + Forecast UI  |
-                              +-------------+-------------+
-                                            |
-                                            | HTTPS
-                                            v
-                     +----------------------+----------------------+
-                     |     API Gateway / Ingress (prod add-on)     |
-                     |  AuthN/AuthZ, TLS, WAF, rate limits, routing|
-                     +-----------+---------------------+-----------+
-### 3.4 Service Discovery
-*   **Mechanism**: **Docker DNS** (previously Consul)
-    *   Services communicate directly using Docker container hostnames (e.g., `http://ingestion-service:8081`).
-    *   **Simplification**: For a local demo/craft project, dynamic service discovery overhead (Consul) was removed in favor of native platform capabilities.
-*   **Environment Variables**:
-    *   `AGGREGATION_SERVICE_URL`: Configures where the forecasting service finds the aggregation API.
-                 +---------------+-----+     +---------+----------------+
-                 |  Forecasting Service |     |     Aggregation Service |
-                 |  (FastAPI + UI/API)  |     |  (Kafka consumer + API) |
-                 |  /forecast/*, /ui    |     |  /api/top-categories    |
-                 +----------+-----------+     +-----------+-------------+
-                            |                             |
-    Read category names     |                             | Write aggregates
-                            v                             v
-+-------------------+   +------------+
-|  Order Simulator  |   | PostgreSQL |
-| (load + backfill) +-->| (OLTP +    |
-+-------------------+   | Analytics) |
-                        +------------+
-                        | ingestion.*|
-                        | - merchants|
-                        | - categories
-                        | - products |
-                        | - orders   |
-                        | - order_   |
-                        |   items    |
-                        | - order_   |
-                        |   events   |
-                        +------------+
-                        |forecasting.*
-                        | - category_|
-                        |   sales_agg|
-                        | - processed|
-                        |   _events  |
-                        | - category_|
-                        |   sales_   |
-                        |   forecast |
-                        +-----+------+
-                              ^
-                              | SQL write
-                              |
-                 +------------+---------+
-                 |    Ingestion Service |
-                 |   POST /v1/orders    |
-                 | + outbox table write |
-                 +----------+-----------+
-                            |
-                            | Kafka publish (outbox relay)
-             +------+-------+        +-------------+
-             |  Kafka topic:|        | Forecasting |
-             |  order-events|        |   Worker    |
-             +--------------+        | (precompute)|
-                                     +------+------+
-                                            |
-                                            | SQL Read/Write
-                                            v
-                                        PostgreSQL
+## Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Clients"
+        U[End User<br/>Top Sales + Forecast UI]
+    end
+    
+    subgraph "API Layer"
+        GW[API Gateway / Ingress<br/>AuthN/AuthZ, TLS, WAF]
+    end
+    
+    subgraph "Services"
+        IS[Ingestion Service<br/>POST /v1/orders]
+        AS[Aggregation Service<br/>Kafka Consumer + API]
+        FS[Forecasting Service<br/>FastAPI + ML Models]
+        FW[Forecasting Worker<br/>Batch Predictions]
+        OS[Order Simulator<br/>Load + Backfill]
+    end
+    
+    subgraph "Streaming"
+        K[Kafka<br/>order-events topic]
+    end
+    
+    subgraph "OLTP (PostgreSQL)"
+        PG[(PostgreSQL<br/>ingestion.*)]
+    end
+    
+    subgraph "OLAP (ClickHouse)"
+        CH[(ClickHouse<br/>Analytics)]
+    end
+    
+    U --> GW
+    GW --> FS
+    GW --> AS
+    OS --> IS
+    IS --> PG
+    IS --> K
+    K --> AS
+    AS --> CH
+    AS --> PG
+    FW --> CH
+    FS --> CH
+    FS -.->|category names| PG
 ```
 
+---
 
+## Data Flow
+
+### Order Ingestion → Aggregation
+
+```mermaid
+sequenceDiagram
+    participant OS as Order Simulator
+    participant IS as Ingestion Service
+    participant PG as PostgreSQL
+    participant K as Kafka
+    participant AS as Aggregation Service
+    participant CH as ClickHouse
+    
+    OS->>IS: POST /v1/orders
+    IS->>PG: Write order + items
+    IS->>PG: Write outbox event
+    IS->>K: Publish order-events
+    K->>AS: Consume order-events
+    AS->>CH: Upsert category_sales_agg
+    AS->>PG: Upsert (backward compat)
+```
+
+### Forecast Generation
+
+| Flow | Source | Destination |
+|------|--------|-------------|
+| **Real-time writes** | `OrderEventsConsumer` → `bulkUpsert()` | ClickHouse |
+| **Real-time reads** | `ForecastingService._fetch_series()` | ClickHouse |
+| **ML training data** | `fetch_category_time_series()` | ClickHouse |
+| **Forecast storage** | `save_forecast_results()` | ClickHouse |
+| **Category names** | `_get_category_names_from_postgres()` | PostgreSQL |
+
+> [!IMPORTANT]
+> The `ingestion.categories` table stays in PostgreSQL. ClickHouse only holds pre-aggregated analytics data. Category name lookups still query PostgreSQL.
+
+---
+
+## How Real-Time vs ML Models Work with ClickHouse
+
+### Real-Time Analytics (Top Categories API)
+
+```
+User Request → Aggregation Service → ClickHouse (category_sales_agg)
+                                           ↓
+                           JOIN with PostgreSQL (category names)
+                                           ↓
+                                     Response
+```
+
+- **Query performance**: ClickHouse is 10-100x faster for aggregations
+- **Data freshness**: Near real-time (ReplacingMergeTree merges in background)
+- **JOINs**: Category names fetched separately from PostgreSQL to avoid cross-DB joins
+
+### ML Model Training & Inference
+
+```
+Worker (every 60s) → ClickHouse (fetch time series)
+                           ↓
+              Run models (rolling, WMA, SES, ARIMA, SNAIVE)
+                           ↓
+              ClickHouse (store forecasts in category_sales_forecast)
+```
+
+- **Training data**: Fetched from ClickHouse's `category_sales_agg`
+- **Model output**: Stored in ClickHouse's `category_sales_forecast`
+- **Performance**: ClickHouse excels at reading large time-series for training
+
+### API Flow (Forecast Request)
+
+```
+Forecast API → ForecastingService._fetch_series() → ClickHouse
+                           ↓
+                    Run model inference
+                           ↓
+                    Return predictions
+```
+
+---
 ## Production-grade components (not implemented, recommended)
 
 - **Identity/tenancy**: JWT/OAuth, merchant scoping, RBAC, audit logs.
@@ -231,9 +284,10 @@
 
 - **PostgreSQL** (`ingestion.*`): OLTP entities and the outbox table for transactional workloads.
     
-- **PostgreSQL** (`forecasting.*`): Analytical aggregates and forecast results.
-  - Logical separation within the same physical DB for simplicity in this deployment.
-  - Allows `JOIN` queries for dashboards (e.g., joining `ingestion.categories` with `forecasting.category_sales_forecast`).
+- **ClickHouse** (analytics): Time-series aggregates and forecast results, optimized for analytical queries.
+  - Uses ReplacingMergeTree engine for upsert semantics
+  - Partitioned by month for efficient time-range queries
+  - Category names are fetched from PostgreSQL at query time
 
 ## ingestion schema - PostgreSQL (PK/FK)
 
@@ -250,19 +304,21 @@
 - `ingestion.order_events` (outbox) ... (Unchanged)
         
 
-## forecasting schema - PostgreSQL
+## Analytics Tables - ClickHouse
 
 - `category_sales_agg`
-    - **PK**: `id`.
-    - **Unique business key**: `(merchant_id, category_id, bucket_type, bucket_start)` for safe upserts.
+    - **Engine**: ReplacingMergeTree(updated_at)
+    - **ORDER BY**: `(merchant_id, category_id, bucket_type, bucket_start)`
     - Stores aggregated sales by DAY, WEEK, MONTH buckets.
         
 - `processed_events`
-    - **PK**: `order_id` (idempotency for Kafka consumer).
+    - **Engine**: ReplacingMergeTree(processed_at)
+    - **ORDER BY**: `order_id`
     - Uses `orderId` from ingestion for tracking processed orders.
         
 - `category_sales_forecast`
-    - **PK**: `id`.
+    - **Engine**: MergeTree()
+    - **ORDER BY**: `(merchant_id, category_id, model_name, generated_at)`
     - Stores precomputed forecasts with model results as JSON.
 
 
@@ -277,9 +333,9 @@
     
 - **Events**: outbox publisher periodically reads unprocessed events and publishes to Kafka `order-events`.
     
-- **Aggregates**: aggregation service consumes `order-events`, dedupes via Postgres `forecasting.processed_events`, and upserts bucketed totals into **Postgres** `forecasting.category_sales_agg`.
+- **Aggregates**: aggregation service consumes `order-events`, dedupes via Postgres `forecasting.processed_events`, and upserts bucketed totals into **ClickHouse** `category_sales_agg`.
     
-- **Forecasts**: forecasting worker periodically fetches series from Postgres and writes results to Postgres `forecasting.category_sales_forecast`.
+- **Forecasts**: forecasting worker periodically fetches series from ClickHouse and writes results to **ClickHouse** `category_sales_forecast`.
     
 
 ## Idempotency model
@@ -292,13 +348,13 @@
 ### 1. Ingestion & Aggregation (Real-Time ⚡)
 - **Trigger**: Immediate upon order creation.
 - **Latency**: Milliseconds to seconds (Postgres Write -> Outbox -> Kafka -> Aggregation).
-- **Writes**: **Single-Write** to PostgreSQL `forecasting` schema.
+- **Writes**: **Single-Write** to ClickHouse `category_sales_agg`.
 - **Use Case**: "Top Categories" dashboard, Custom/Year-to-Date range queries.
 
 ### 2. Forecasting (Periodic Batch 🕰️)
 - **Trigger**: Background Scheduler (`worker.py`).
 - **Interval**: **Every 1 minute** (Demo setting; likely hourly/daily in production).
-- **Writes**: Reads aggregated Postgres data, computes models, writes to `category_sales_forecast` in Postgres.
+- **Writes**: Reads aggregated ClickHouse data, computes models, writes to `category_sales_forecast` in ClickHouse.
 - **Use Case**: "Next Period" predictions, Model Comparison.
 
 ## Failure modes (and mitigations)
@@ -323,9 +379,9 @@
 
 - **Event-driven + outbox** improves decoupling ...
     
-- **Postgres-Only Architecture**:
-    - **Pros**: Simplified operations, consistent backups, easy joins across schema.
-    - **Cons**: OLAP queries (forecasting training) share resources with OLTP (ingestion). In high scale, this should be moved to Snowflake/BigQuery (as per production recommendation).
+- **OLTP/OLAP Separation with ClickHouse**:
+    - **Pros**: Analytics queries don't impact OLTP performance; ClickHouse is 10-100x faster for aggregations; proper separation of concerns.
+    - **Cons**: Two databases to manage; category names require cross-database lookup; slightly more complex deployment.
     
 - **Materialized aggregates** make "top categories" queries fast ...
 

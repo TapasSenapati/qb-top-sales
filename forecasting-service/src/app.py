@@ -13,6 +13,7 @@ from .service import ForecastingService, CategoryForecastResult, compute_confide
 
 from .evaluate_models import evaluate_models
 from .postgres_client import get_postgres_client
+from .clickhouse_client import get_clickhouse_client
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,17 @@ async def lifespan(app: FastAPI):
             logger.warning(f"PostgreSQL health check returned: {health}")
     except Exception as e:
         logger.error(f"Failed to connect to PostgreSQL: {e}")
+    
+    # Verify ClickHouse connectivity on startup
+    try:
+        ch_client = get_clickhouse_client()
+        health = ch_client.health_check()
+        if health["status"] == "UP":
+            logger.info(f"ClickHouse connection verified successfully (version: {health.get('version', 'unknown')})")
+        else:
+            logger.warning(f"ClickHouse health check returned: {health}")
+    except Exception as e:
+        logger.error(f"Failed to connect to ClickHouse: {e}")
     
     yield
 
@@ -113,6 +125,13 @@ def health():
 def postgres_health():
     """Check PostgreSQL database connection status."""
     client = get_postgres_client()
+    return client.health_check()
+
+
+@app.get("/health/clickhouse", tags=["health"], summary="ClickHouse health")
+def clickhouse_health():
+    """Check ClickHouse database connection status."""
+    client = get_clickhouse_client()
     return client.health_check()
 
 
